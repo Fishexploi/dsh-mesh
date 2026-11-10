@@ -9,7 +9,7 @@
 一台 DSH 当“上级”，把任务派给其他 DSH；子级在自己的工作区里干活，完成后把结果和文件交回来；遇到敏感操作，子级把审批请求送到上级，由上级点“允许”或“拒绝”。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-0.1.5-2f81f7?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.1.6-2f81f7?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" />
   <img alt="dsh" src="https://img.shields.io/badge/DSH-%5E0.2.2--rc.1-8957e5?style=flat-square" />
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b949e?style=flat-square" />

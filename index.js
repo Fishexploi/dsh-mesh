@@ -68,6 +68,25 @@ function messageOf(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * Build the complete user message the Agent API expects.
+ *
+ * `Agent.followup()`/`steer()`/`inject()` take an identified `UserMessage` and do
+ * not fill in a role: the object is spliced into the inbox and appears in the
+ * next model request exactly as given. A bare `{ content, source }` therefore
+ * reaches the provider as a message without `role`, and the whole request is
+ * rejected ("missing field `role`"), permanently, because that message stays in
+ * the session history. Always deliver through this helper.
+ */
+function userMessage(text) {
+  return {
+    id: randomUUID(),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' },
+  }
+}
+
 function compareVersions(a, b) {
   const parse = value => String(value || '0').split('-')[0].split('.').map(part => Number(part) || 0)
   const left = parse(a)
@@ -749,10 +768,7 @@ class Mesh {
       } catch {
         // Title is cosmetic.
       }
-      await agent.followup({
-        content: [{ type: 'text', text: this.workerPrompt(task) }],
-        source: { kind: 'user' },
-      })
+      await agent.followup(userMessage(this.workerPrompt(task)))
       await agent.whenIdle()
       if (task.finished) return
       const events = agent.session.snapshotEvents()
@@ -1314,10 +1330,7 @@ class Mesh {
     if (task.artifacts && task.artifacts.length) {
       lines.push('', '结果文件：' + task.artifacts.map(item => item.name).join('、'))
     }
-    await agent.followup({
-      content: [{ type: 'text', text: lines.join('\n') }],
-      source: { kind: 'user' },
-    })
+    await agent.followup(userMessage(lines.join('\n')))
   }
 
   isWorkerLineage(sessionId) {
