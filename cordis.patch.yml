@@ -1,4 +1,6 @@
 # dsh-mesh: one bundle for every node. A node can be a parent, a child, or both.
+# `id` stays dsh-mesh (the profile entry id); `name` is the module specifier, so
+# it must match the published package name.
 - insert:
     - id: dsh-mesh
-      name: dsh-mesh
+      name: "@fishexploi/dsh-mesh"

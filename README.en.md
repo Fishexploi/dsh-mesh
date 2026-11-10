@@ -32,24 +32,26 @@ host and a parent of another.
 
 ## Install
 
-Clone this repository on each machine:
+From npm (recommended: updates then follow the package):
+
+```powershell
+dsh plugin --profile <profile> add @fishexploi/dsh-mesh
+```
+
+Or clone the repository and install the folder:
 
 ```powershell
 git clone https://github.com/Fishexploi/dsh-mesh.git
 ```
 
 Then choose the cloned `dsh-mesh` folder in **Settings → Plugins → Install from
-file**. To install from npm instead, publish the package and run:
-
-```powershell
-dsh plugin --profile <profile> add dsh-mesh
-```
+file**.
 
 Restart DSH (or reload the profile) after the first install. The **Mesh** icon
 appears in the left rail.
 
 To copy this machine's plugin set to another machine, see
-[sync/README.md](sync/README.md): `sync\install.cmd` merges `dsh-mesh`,
+[sync/README.md](sync/README.md): `sync\install.cmd` merges `@fishexploi/dsh-mesh`,
 `dshmarket`, `dsh-mnemon`, `dsh-plugin-startup-animation`, and `dsh-pet` into the
 target profile and runs `pnpm install`.
 

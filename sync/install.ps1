@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$ProfileDir = (Join-Path $HOME '.dsh\profiles\desktop'),
   [switch]$SkipInstall
@@ -35,7 +35,7 @@ if (-not $manifest.dsh.profile.bundles) {
 
 $meshSpec = 'file:' + $repoRoot.Replace('\', '/')
 $dependencies = [ordered]@{
-  'dsh-mesh' = $meshSpec
+  '@fishexploi/dsh-mesh' = $meshSpec
   'dsh-mnemon' = '0.5.42'
   'dsh-pet' = '0.4.7'
   'dsh-plugin-startup-animation' = '1.31.1'
@@ -51,7 +51,7 @@ foreach ($name in $dependencies.Keys) {
 }
 
 $bundles = @($manifest.dsh.profile.bundles)
-foreach ($name in @('dshmarket', 'dsh-mnemon', 'dsh-plugin-startup-animation', 'dsh-mesh')) {
+foreach ($name in @('dshmarket', 'dsh-mnemon', 'dsh-plugin-startup-animation', '@fishexploi/dsh-mesh')) {
   if ($bundles -notcontains $name) { $bundles += $name }
 }
 $manifest.dsh.profile.bundles = $bundles
