@@ -489,6 +489,10 @@ window.__ModuleLoader__.load({
 
       const submitPair = async () => {
         if (!pairing || pairBusy) return;
+        if (pairCode.length !== 6) {
+          setPairError('请输入 6 位配对码');
+          return;
+        }
         setPairBusy(true);
         setPairError('');
         try {
