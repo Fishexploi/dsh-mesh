@@ -4,6 +4,30 @@
 
 ## 1. 发布到 npm
 
+### 如果 npm 网页注册被风控挡住（403）
+
+`www.npmjs.com` 走 Cloudflare 的机器人墙，某些出口 IP 一律 403；但
+**注册表 API 不挡**。可以先探一下，再直接走 API 注册：
+
+```powershell
+# 确认端点可用（发一个故意写错的邮箱，预期返回 “email address you entered is invalid”）
+powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -Probe
+
+# 真正注册：会交互式问用户名/邮箱/密码（密码不回显），成功后把 token 写进 ~/.npmrc
+powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -UserName fishexploi -Email you@example.com
+```
+
+用户名同时就是 scope（`@fishexploi/...`）。注册完去邮箱点 npm 的验证链接，
+未验证邮箱的账号发布会被拒。
+
+登录（网页登录同样可能被挡时用终端模式）：
+
+```powershell
+npm login --auth-type=legacy --registry=https://registry.npmjs.org
+```
+
+### 正常发布
+
 ```powershell
 # 首次：登录 npmjs（本机 .npmrc 默认指向 npmmirror，这里必须显式指定官方源）
 npm login --registry=https://registry.npmjs.org
@@ -82,3 +106,14 @@ dsh.so 与部分目录站会按 topic 自动索引。
 - 本地目录链接安装（`link:` / `file:`）：在目标机器跑 `sync\migrate-scoped.ps1`。
 - npm 版本安装：`dsh plugin --profile <profile> remove dsh-mesh`，再
   `dsh plugin --profile <profile> add @fishexploi/dsh-mesh`。
+
+## 6. 万一 npm 一直注册不了
+
+市场收录不强制 npm：精选列表明确支持 **GitHub-only 条目**，dsh-market 也能从
+压缩包链接安装。退路是把 `npm pack` 出来的 tarball 挂到 GitHub Release，安装命令写成
+
+```powershell
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.0/fishexploi-dsh-mesh-0.3.0.tgz
+```
+
+代价：没有 npm 下载统计，更新走 GitHub 而不是 npm。这是退路，不是首选。
