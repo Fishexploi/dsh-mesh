@@ -42,6 +42,11 @@ dsh plugin --profile <profile> add dsh-mesh
 Restart DSH (or reload the profile) after the first install. The **Mesh** icon
 appears in the left rail.
 
+To copy this machine's plugin set to another machine, see
+[sync/README.md](sync/README.md): `sync\install.cmd` merges `dsh-mesh`,
+`dshmarket`, `dsh-mnemon`, `dsh-plugin-startup-animation`, and `dsh-pet` into the
+target profile and runs `pnpm install`.
+
 The package has no third-party runtime dependencies and no install scripts.
 
 ## First connection

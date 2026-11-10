@@ -68,6 +68,11 @@ git clone https://github.com/Fishexploi/dsh-mesh.git
 打开 DSH：**设置 → 插件 → 从本地安装**，选择克隆下来的 `dsh-mesh` 目录。  
 安装后重载/重启一次，左侧栏会出现 **Mesh** 图标。
 
+> 想把当前机器的插件一并同步到另一台机器，见
+> [sync/README.md](sync/README.md)：运行 `sync\install.cmd` 会合并
+> `dsh-mesh`、`dshmarket`、`dsh-mnemon`、`dsh-plugin-startup-animation` 和
+> `dsh-pet` 的依赖并执行 `pnpm install`。
+
 ### 2. 子级打开配对码
 
 在 B 机器点开 **Mesh**，顶部会显示一个 6 位配对码。  
