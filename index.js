@@ -1845,13 +1845,26 @@ class Mesh {
     return this.view()
   }
 
-  rawUpdateUrl(file) {
-    return 'https://raw.githubusercontent.com/' + UPDATE_REPO + '/' + UPDATE_BRANCH + '/' + file + '?dsh_mesh=' + Date.now()
+  rawUpdateUrl(file, ref = UPDATE_BRANCH, bustCache = false) {
+    const base = 'https://raw.githubusercontent.com/' + UPDATE_REPO + '/' + ref + '/' + file
+    return bustCache ? base + '?dsh_mesh=' + Date.now() : base
+  }
+
+  async updateCommit() {
+    try {
+      const raw = await httpsBuffer('https://api.github.com/repos/' + UPDATE_REPO + '/commits/' + UPDATE_BRANCH + '?dsh_mesh=' + Date.now())
+      const commit = JSON.parse(raw.toString('utf8'))
+      return typeof commit.sha === 'string' ? commit.sha : ''
+    } catch {
+      return ''
+    }
   }
 
   async checkUpdate() {
     const current = await this.readVersion()
-    const raw = await httpsBuffer(this.rawUpdateUrl('package.json'))
+    const sha = await this.updateCommit()
+    const ref = sha || UPDATE_BRANCH
+    const raw = await httpsBuffer(this.rawUpdateUrl('package.json', ref, !sha))
     let manifest
     try {
       manifest = JSON.parse(raw.toString('utf8'))
@@ -1862,6 +1875,7 @@ class Mesh {
     return {
       current,
       latest,
+      sha,
       available: compareVersions(latest, current) > 0,
       repo: 'https://github.com/' + UPDATE_REPO,
       checkedAt: now(),
@@ -1883,10 +1897,10 @@ class Mesh {
     })
   }
 
-  async downloadUpdateFiles(latest) {
+  async downloadUpdateFiles(latest, ref) {
     const files = new Map()
     for (const file of UPDATE_FILES) {
-      const data = await httpsBuffer(this.rawUpdateUrl(file))
+      const data = await httpsBuffer(this.rawUpdateUrl(file, ref, !ref || ref === UPDATE_BRANCH))
       if (file === 'package.json') {
         let manifest
         try {
@@ -1931,7 +1945,7 @@ class Mesh {
       }
     }
     if (method !== 'git') {
-      await this.downloadUpdateFiles(check.latest)
+      await this.downloadUpdateFiles(check.latest, check.sha || UPDATE_BRANCH)
       this.version = await this.readVersion()
     }
     if (compareVersions(this.version, check.latest) < 0) {
