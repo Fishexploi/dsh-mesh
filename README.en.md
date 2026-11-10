@@ -27,6 +27,8 @@ host and a parent of another.
   child's existing task session and workspace, so nothing has to be re-briefed.
 - Results are landed on disk in full and the model only sees a bounded preview,
   so long reports do not flood the parent's context.
+- The task list is one tab per server with collapsible cards; finished records
+  can be deleted without touching their DSH session or workspace.
 
 ## Install
 
@@ -150,6 +152,19 @@ The child is also told to put detail in the workspace's `REPORT.md` and to keep
 its reply near 800 characters, and a follow-up re-sends only the new instruction.
 **设置 → 结果摘要字数** lowers the preview budget further at the cost of one extra
 file read when detail is needed.
+
+## Task panel
+
+One tab per server, with the task count and a dot for unread results; the card
+header carries the direction (`↑ child` for a task you sent, `↓ parent` for one
+you received) and a matching accent bar. Cards are collapsed to a single row by
+default and expand on click; at most 12 rows show until **显示全部**.
+
+**删除记录** removes one finished record, **清理已结束** removes every finished
+record in the current tab. Both delete only the Mesh record, the landed report
+and downloaded artifacts: the DSH session and the task workspace stay. Unread
+results and running tasks are kept, and each side of a pair keeps its own
+records, so a child can clear its inbox without touching the parent's.
 
 ## Security notes
 

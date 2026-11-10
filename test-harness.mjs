@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -247,6 +248,58 @@ try {
   if (injected.length !== noticesBefore + 1) throw new Error('follow-up did not notify the parent again')
   if (b.state.tasks[followId].sessionId !== 'mesh-followup-test') throw new Error('follow-up opened a new session')
   console.log('followup ok:', followId, 'rounds', followed.followups.length)
+
+  // ── records: delete one, clear the finished ones, never drop a live task ──
+  const clearFile = join(a.resultsDir(), 'task-clear-test.md')
+  await mkdir(a.resultsDir(), { recursive: true })
+  await writeFile(clearFile, '# old report')
+  a.state.tasks['task-clear-test'] = {
+    id: 'task-clear-test',
+    direction: 'out',
+    peerId: b.state.nodeId,
+    peerName: 'stub child',
+    title: 'clear me',
+    prompt: '',
+    permission: 'workspace-write',
+    status: 'done',
+    createdAt: Date.now(),
+    endedAt: Date.now(),
+    resultText: 'old',
+    resultChars: 3,
+    resultFile: clearFile,
+    unread: false,
+    notified: true,
+    artifacts: [],
+  }
+  a.state.tasks['task-running-test'] = {
+    id: 'task-running-test',
+    direction: 'out',
+    peerId: b.state.nodeId,
+    peerName: 'stub child',
+    title: 'still running',
+    prompt: '',
+    permission: 'workspace-write',
+    status: 'running',
+    createdAt: Date.now(),
+    unread: false,
+    artifacts: [],
+  }
+  let refused = false
+  try {
+    await a.deleteTask('task-running-test')
+  } catch {
+    refused = true
+  }
+  if (!refused) throw new Error('deleteTask accepted a running task')
+  const cleared = await a.clearTasks({ peerId: b.state.nodeId })
+  if (!cleared.removed) throw new Error('clearTasks removed nothing')
+  if (a.state.tasks['task-clear-test']) throw new Error('finished record survived clearTasks')
+  if (!a.state.tasks['task-running-test']) throw new Error('clearTasks removed a running task')
+  if (existsSync(clearFile)) throw new Error('clearTasks left the landed report behind')
+  const deleted = await a.deleteTask(followId)
+  if (deleted.deleted !== followId || a.state.tasks[followId]) throw new Error('deleteTask did not remove the record')
+  if (existsSync(join(a.resultsDir(), followId + '.md'))) throw new Error('deleteTask left the landed report behind')
+  console.log('records ok: cleared', cleared.removed, 'deleted', deleted.deleted)
 
   const approvalTask = {
     id: 'task-approval-test',

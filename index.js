@@ -889,6 +889,9 @@ class Mesh {
     task.endedAt = null
     task.error = ''
     task.resultText = ''
+    task.resultChars = 0
+    task.resultTruncated = false
+    task.resultFile = ''
     task.artifacts = []
     task.delivery = 'none'
     task.deliveryError = ''
@@ -1677,6 +1680,9 @@ class Mesh {
     task.unread = false
     task.delivery = 'none'
     task.deliveryError = ''
+    task.resultChars = 0
+    task.resultTruncated = false
+    task.resultFile = ''
     this.save()
     return {
       taskId: task.id,
@@ -1685,6 +1691,49 @@ class Mesh {
       followups: task.followups.length,
       note: '子级正在同一会话里处理这条追问；完成后结果照常投递，用 mesh_inbox 取摘要。',
     }
+  }
+
+  /**
+   * Forget one task record on this node.
+   *
+   * Only the Mesh bookkeeping goes: the landed report and the downloaded
+   * artifacts are removed, but the DSH session and the task workspace stay where
+   * they are, so deleting a record never destroys work by itself.
+   */
+  async deleteTask(taskId) {
+    const id = String(taskId || '')
+    const task = this.state.tasks[id]
+    if (!task) throw new Error('任务不存在')
+    if (task.status === 'running' || task.status === 'queued') throw new Error('任务还在执行，先取消再删除')
+    delete this.state.tasks[id]
+    this.save()
+    await this.dropTaskFiles(task)
+    return { deleted: id }
+  }
+
+  /**
+   * Clear finished task records, optionally for one peer only. Unread results
+   * are kept unless the caller explicitly asks for them to go too.
+   */
+  async clearTasks(input = {}) {
+    const peerId = String(input.peerId || '')
+    const keepUnread = input.keepUnread !== false
+    const removed = []
+    for (const [id, task] of Object.entries(this.state.tasks)) {
+      if (peerId && task.peerId !== peerId) continue
+      if (task.status === 'running' || task.status === 'queued') continue
+      if (keepUnread && task.unread) continue
+      removed.push(task)
+      delete this.state.tasks[id]
+    }
+    this.save()
+    for (const task of removed) await this.dropTaskFiles(task)
+    return { removed: removed.length, keptUnread: keepUnread }
+  }
+
+  async dropTaskFiles(task) {
+    if (task.resultFile) await rm(task.resultFile, { force: true }).catch(() => {})
+    await rm(join(this.downloads, safeSegment(task.id)), { recursive: true, force: true }).catch(() => {})
   }
 
   async approve(input) {
@@ -2138,6 +2187,8 @@ class Mesh {
     if (action === 'grant') return this.setGrant(String(body.permission || 'none'))
     if (action === 'task') return this.dispatchTask(body)
     if (action === 'reply') return this.followupTask(body)
+    if (action === 'delete-task') return this.deleteTask(body.taskId)
+    if (action === 'clear-tasks') return this.clearTasks(body)
     if (action === 'cancel') return this.cancelTask(String(body.taskId || ''))
     if (action === 'approval') return this.approve(body)
     if (action === 'update-check') return this.checkUpdate()

@@ -139,7 +139,7 @@ window.__ModuleLoader__.load({
     }
 
     function Badge({ children, tone = 'neutral' }) {
-      const color = tone === 'bad' ? TOKEN.bad : tone === 'warn' ? TOKEN.warn : tone === 'good' ? TOKEN.good : TOKEN.muted;
+      const color = tone === 'bad' ? TOKEN.bad : tone === 'warn' ? TOKEN.warn : tone === 'good' ? TOKEN.good : tone === 'brand' ? TOKEN.brand : TOKEN.muted;
       return h('span', {
         style: {
           display: 'inline-flex',
@@ -247,8 +247,8 @@ window.__ModuleLoader__.load({
       }, children);
     }
 
-    function TaskCard({ task, nodeName, onCancel, onReply }) {
-      const [open, setOpen] = useState(false);
+    function TaskCard({ task, onCancel, onReply, onDelete }) {
+      const [expanded, setExpanded] = useState(false);
       const [replyOpen, setReplyOpen] = useState(false);
       const [replyText, setReplyText] = useState('');
       const [replyBusy, setReplyBusy] = useState(false);
@@ -257,7 +257,9 @@ window.__ModuleLoader__.load({
       const tone = task.status === 'failed' ? 'bad' : task.status === 'done' ? 'good' : task.status === 'running' ? 'warn' : 'neutral';
       const artifacts = task.artifacts || [];
       const rounds = task.followups || 0;
-      const canReply = Boolean(onReply) && task.direction === 'out' && !active;
+      const outgoing = task.direction === 'out';
+      const accent = outgoing ? TOKEN.brand : TOKEN.warn;
+      const canReply = Boolean(onReply) && outgoing && !active;
       const sendReply = async () => {
         if (!canReply || replyBusy) return;
         setReplyError('');
@@ -272,94 +274,120 @@ window.__ModuleLoader__.load({
           setReplyBusy(false);
         }
       };
-      return h(Card, { style: { padding: 12, marginBottom: 8 } },
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
-          h(Badge, { tone: task.direction === 'in' ? 'warn' : 'neutral' }, task.direction === 'in' ? '接收' : '派出'),
-          h('strong', { style: { fontSize: 13, fontWeight: 600 } }, task.title || '未命名任务'),
+      const meta = [];
+      if (task.sessionId) meta.push(`会话：${task.sessionId}`);
+      if (task.workspace) meta.push(`工作区：${task.workspace}`);
+      return h(Card, {
+        style: {
+          padding: 10,
+          marginBottom: 6,
+          borderLeft: `3px solid ${accent}`,
+        },
+      },
+        h('div', {
+          role: 'button',
+          tabIndex: 0,
+          onClick: () => setExpanded(value => !value),
+          onKeyDown: event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setExpanded(value => !value);
+            }
+          },
+          style: { display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', cursor: 'pointer' },
+        },
+          h(Badge, { tone: outgoing ? 'brand' : 'warn' }, outgoing ? `↑ ${task.peerName || '下级'}` : `↓ ${task.peerName || '上级'}`),
+          h('strong', { style: { fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' } },
+            task.title || '未命名任务'),
           h(Badge, { tone }, STATUS_LABEL[task.status] || task.status),
           rounds ? h(Badge, { tone: 'neutral' }, `续聊 ${rounds}`) : null,
-          task.approvalPending ? h(Badge, { tone: 'warn' }, '等待审批') : null,
+          task.approvalPending ? h(Badge, { tone: 'warn' }, '待审批') : null,
           task.unread ? h(Badge, { tone: 'good' }, '新结果') : null,
-          task.delivery === 'failed' ? h(Badge, { tone: 'bad' }, '成果待调取') : null,
+          task.delivery === 'failed' ? h(Badge, { tone: 'bad' }, '待调取') : null,
           h('span', { style: { flex: 1 } }),
-          h('span', { style: { fontSize: 11, color: TOKEN.muted } }, `${task.direction === 'in' ? '来自' : '发给'} ${task.peerName || '—'}`),
+          h('span', { style: { fontSize: 11, color: TOKEN.muted } }, timeText(task.endedAt || task.createdAt)),
+          h('span', { style: { fontSize: 11, color: TOKEN.muted } }, expanded ? '▾' : '▸'),
         ),
-        h('div', { style: { display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: TOKEN.muted, flexWrap: 'wrap' } },
-          h('span', null, `权限：${PERMISSION_LABEL[task.permission] || task.permission}`),
-          h('span', null, `创建：${timeText(task.createdAt)}`),
-          task.sessionId ? h('span', null, `会话：${task.sessionId}`) : null,
-          task.workspace ? h('span', { title: task.workspace }, `工作区：${task.workspace}`) : null,
-        ),
-        task.error ? h('div', { style: { marginTop: 8, color: TOKEN.bad, fontSize: 12, whiteSpace: 'pre-wrap' } }, task.error) : null,
-        task.deliveryError ? h('div', { style: { marginTop: 6, color: TOKEN.warn, fontSize: 11 } }, task.deliveryError) : null,
-        h('div', { style: { display: 'flex', gap: 8, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' } },
-          h(Button, { onClick: () => setOpen(value => !value) }, open ? '收起结果' : '查看结果'),
-          canReply ? h(Button, { kind: 'primary', onClick: () => setReplyOpen(value => !value) }, replyOpen ? '收起追问' : '继续追问') : null,
-          active ? h(Button, { kind: 'danger', onClick: () => onCancel(task) }, '取消') : null,
-          artifacts.length ? h('span', { style: { fontSize: 11, color: TOKEN.muted } }, `${artifacts.length} 个结果文件`) : null,
-        ),
-        replyOpen ? h('div', { style: { marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 } },
-          h(Field, {
-            label: '追加要求',
-            hint: '子级在原来的任务会话里继续处理，不新开会话、也不用重新交代背景。',
-          },
-            h('textarea', {
-              value: replyText,
-              rows: 3,
-              autoFocus: true,
-              placeholder: '例如：改动集中在配置项，顺带给一段回滚步骤。',
-              onChange: event => setReplyText(event.target.value),
-              style: { ...inputStyle, resize: 'vertical', lineHeight: 1.55 },
-            }),
-          ),
-          replyError ? h('div', { style: { color: TOKEN.bad, fontSize: 12 } }, replyError) : null,
-          h('div', { style: { display: 'flex', gap: 8 } },
-            h(Button, { kind: 'primary', disabled: replyBusy || !replyText.trim(), onClick: sendReply }, replyBusy ? '发送中…' : '发送追问'),
-            h(Button, { onClick: () => setReplyOpen(false), disabled: replyBusy }, '取消'),
-          ),
-        ) : null,
-        open ? h('div', { style: { marginTop: 10 } },
-          h('pre', {
-            style: {
-              margin: 0,
-              padding: 10,
-              background: TOKEN.bg,
-              border: `1px solid ${TOKEN.border}`,
-              borderRadius: 7,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-              fontSize: 11,
-              lineHeight: 1.55,
-              maxHeight: 360,
-              overflow: 'auto',
-            },
-          }, task.resultText || '（还没有结果）'),
-          task.resultTruncated
-            ? h('div', { style: { marginTop: 6, fontSize: 11, color: TOKEN.muted } },
-                `已截取前 ${task.resultText.length} 字符（全文 ${task.resultChars} 字符）。`,
-                task.resultFile
+        expanded
+          ? h('div', null,
+              h('div', { style: { display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: TOKEN.muted, flexWrap: 'wrap' } },
+                h('span', null, `权限：${PERMISSION_LABEL[task.permission] || task.permission}`),
+                h('span', null, `创建：${timeText(task.createdAt)}`),
+                meta.map(item => h('span', { key: item, title: item }, item)),
+              ),
+              task.error ? h('div', { style: { marginTop: 8, color: TOKEN.bad, fontSize: 12, whiteSpace: 'pre-wrap' } }, task.error) : null,
+              task.deliveryError ? h('div', { style: { marginTop: 6, color: TOKEN.warn, fontSize: 11 } }, task.deliveryError) : null,
+              h('pre', {
+                style: {
+                  margin: '8px 0 0',
+                  padding: 9,
+                  background: TOKEN.bg,
+                  border: `1px solid ${TOKEN.border}`,
+                  borderRadius: 7,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+                  fontSize: 11,
+                  lineHeight: 1.55,
+                  maxHeight: 320,
+                  overflow: 'auto',
+                },
+              }, task.resultText || (active ? '（执行中，结果还没回来）' : '（还没有结果）')),
+              task.resultTruncated
+                ? h('div', { style: { marginTop: 6, fontSize: 11, color: TOKEN.muted } },
+                    `已截取前 ${task.resultText.length} 字符（全文 ${task.resultChars} 字符）。`,
+                    task.resultFile
+                      ? h('a', {
+                          href: `/mesh/api/result?taskId=${encodeURIComponent(task.id)}`,
+                          target: '_blank',
+                          rel: 'noreferrer',
+                          style: { marginLeft: 6, color: TOKEN.brand, textDecoration: 'none' },
+                        }, '查看完整报告')
+                      : null,
+                  )
+                : null,
+              artifacts.length ? h('div', { style: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 } },
+                artifacts.map(artifact => outgoing
                   ? h('a', {
-                      href: `/mesh/api/result?taskId=${encodeURIComponent(task.id)}`,
-                      target: '_blank',
-                      rel: 'noreferrer',
-                      style: { marginLeft: 6, color: TOKEN.brand, textDecoration: 'none' },
-                    }, '查看完整报告')
+                      key: artifact.name,
+                      href: `/mesh/api/download?taskId=${encodeURIComponent(task.id)}&name=${encodeURIComponent(artifact.name)}`,
+                      style: { color: TOKEN.brand, fontSize: 12, textDecoration: 'none' },
+                    }, `下载 ${artifact.name}（${Math.max(1, Math.round(artifact.bytes / 1024))} KB）`)
+                  : h('span', { key: artifact.name, style: { color: TOKEN.muted, fontSize: 12 } },
+                      `结果文件：${artifact.name}（${Math.max(1, Math.round(artifact.bytes / 1024))} KB）`,
+                    )),
+              ) : null,
+              h('div', { style: { display: 'flex', gap: 8, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' } },
+                canReply ? h(Button, { kind: 'primary', onClick: () => setReplyOpen(value => !value) }, replyOpen ? '收起追问' : '继续追问') : null,
+                active ? h(Button, { kind: 'danger', onClick: () => onCancel(task) }, '取消') : null,
+                onDelete && !active
+                  ? h(Button, { onClick: () => onDelete(task) }, '删除记录')
                   : null,
-              )
-            : null,
-          artifacts.length ? h('div', { style: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 } },
-            artifacts.map(artifact => task.direction === 'out'
-              ? h('a', {
-                  key: artifact.name,
-                  href: `/mesh/api/download?taskId=${encodeURIComponent(task.id)}&name=${encodeURIComponent(artifact.name)}`,
-                  style: { color: TOKEN.brand, fontSize: 12, textDecoration: 'none' },
-                }, `下载 ${artifact.name}（${Math.max(1, Math.round(artifact.bytes / 1024))} KB）`)
-              : h('span', { key: artifact.name, style: { color: TOKEN.muted, fontSize: 12 } },
-                  `结果文件：${artifact.name}（${Math.max(1, Math.round(artifact.bytes / 1024))} KB）`,
-                )),
-          ) : null,
-        ) : null,
+                h('span', { style: { flex: 1 } }),
+                h('span', { style: { fontSize: 11, color: TOKEN.muted } }, `ID ${String(task.id).slice(0, 13)}…`),
+              ),
+              replyOpen ? h('div', { style: { marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 } },
+                h(Field, {
+                  label: '追加要求',
+                  hint: '在子级原来的任务会话里继续处理，不新开会话、也不用重新交代背景。',
+                },
+                  h('textarea', {
+                    value: replyText,
+                    rows: 3,
+                    autoFocus: true,
+                    placeholder: '例如：改动集中在配置项，顺带给一段回滚步骤。',
+                    onChange: event => setReplyText(event.target.value),
+                    style: { ...inputStyle, resize: 'vertical', lineHeight: 1.55 },
+                  }),
+                ),
+                replyError ? h('div', { style: { color: TOKEN.bad, fontSize: 12 } }, replyError) : null,
+                h('div', { style: { display: 'flex', gap: 8 } },
+                  h(Button, { kind: 'primary', disabled: replyBusy || !replyText.trim(), onClick: sendReply }, replyBusy ? '发送中…' : '发送追问'),
+                  h(Button, { onClick: () => setReplyOpen(false), disabled: replyBusy }, '取消'),
+                ),
+              ) : null,
+            )
+          : null,
       );
     }
 
@@ -513,6 +541,8 @@ window.__ModuleLoader__.load({
       const [updateBusy, setUpdateBusy] = useState(false);
       const [updateNotice, setUpdateNotice] = useState('');
       const [updateError, setUpdateError] = useState('');
+      const [peerTab, setPeerTab] = useState('all');
+      const [showAllTasks, setShowAllTasks] = useState(false);
 
       if (snapshot.loading && !data) {
         return h('div', { style: { padding: 28, color: TOKEN.muted, fontSize: 12 } }, '正在连接 DSH Mesh 本地服务…');
@@ -529,6 +559,56 @@ window.__ModuleLoader__.load({
       const discovered = data.discovered || [];
       const tasks = data.tasks || [];
       const approvals = data.approvals || [];
+
+      // One tab per server; the parent is a server too ("被委派" side), so the
+      // tab carries the direction counts and the card carries the accent.
+      // Plain computation, not useMemo: this sits after the early returns, and
+      // a hook there would change the hook order between renders.
+      const groups = (() => {
+        const map = new Map();
+        for (const task of tasks) {
+          const key = task.peerId || task.peerName || 'unknown';
+          if (!map.has(key)) map.set(key, { key, label: task.peerName || key, out: 0, input: 0, unread: 0 });
+          const group = map.get(key);
+          if (task.direction === 'out') group.out += 1;
+          else group.input += 1;
+          if (task.unread) group.unread += 1;
+        }
+        return [...map.values()];
+      })();
+      const activeTab = peerTab === 'all' || groups.some(group => group.key === peerTab) ? peerTab : 'all';
+      const activeGroup = groups.find(group => group.key === activeTab) || null;
+      const visibleTasks = activeTab === 'all'
+        ? tasks
+        : tasks.filter(task => (task.peerId || task.peerName) === activeTab);
+      const shownTasks = showAllTasks ? visibleTasks.slice(0, 200) : visibleTasks.slice(0, 12);
+      const tabPill = (key, label, group) => h('button', {
+        key,
+        type: 'button',
+        title: group ? `派出 ${group.out} · 接收 ${group.input}` : '全部服务器',
+        onClick: () => {
+          setPeerTab(key);
+          setShowAllTasks(false);
+        },
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          cursor: 'pointer',
+          borderRadius: 999,
+          padding: '3px 10px',
+          fontSize: 12,
+          lineHeight: '20px',
+          fontFamily: 'inherit',
+          border: `1px solid ${activeTab === key ? TOKEN.brand : TOKEN.border2}`,
+          background: activeTab === key ? `color-mix(in srgb, ${TOKEN.brand} 14%, transparent)` : 'transparent',
+          color: activeTab === key ? TOKEN.brand : TOKEN.text,
+        },
+      }, label,
+        group && group.unread
+          ? h('span', { style: { width: 6, height: 6, borderRadius: 99, background: TOKEN.good, display: 'inline-block' } })
+          : null,
+      );
 
       const run = async (action, body) => {
         setBusy(true);
@@ -753,18 +833,47 @@ window.__ModuleLoader__.load({
           ),
         ),
 
-        h(Section, { title: '任务', hint: '上级派出的和下级执行的都显示在这里' },
-          tasks.length
-            ? tasks.slice(0, 30).map(task => h(TaskCard, {
+        h(Section, {
+          title: '任务',
+          hint: '按服务器切换 · 点卡片展开 · ↑派出 / ↓接收',
+          extra: visibleTasks.some(task => task.status !== 'running' && task.status !== 'queued')
+            ? h(Button, {
+                disabled: busy,
+                title: '只删除 Mesh 记录，会话和工作区保留',
+                onClick: () => {
+                  const label = activeGroup ? activeGroup.label : '全部服务器';
+                  if (window.confirm(`清理「${label}」里已结束的任务记录？未读结果会保留，会话和工作区不受影响。`)) {
+                    run('clear-tasks', { peerId: activeTab === 'all' ? '' : activeTab }).catch(() => {});
+                  }
+                },
+              }, '清理已结束')
+            : null,
+        },
+          groups.length
+            ? h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 } },
+                tabPill('all', `全部 ${tasks.length}`),
+                groups.map(group => tabPill(group.key, `${group.label} ${group.out + group.input}`, group)),
+              )
+            : null,
+          shownTasks.length
+            ? shownTasks.map(task => h(TaskCard, {
                 key: task.id,
                 task,
-                nodeName: node.name,
                 onCancel: item => {
                   if (window.confirm(`取消任务「${item.title}」？`)) run('cancel', { taskId: item.id }).catch(() => {});
                 },
                 onReply: (item, message) => run('reply', { taskId: item.id, message }),
+                onDelete: item => {
+                  if (window.confirm(`删除任务记录「${item.title}」？只删 Mesh 记录，会话和工作区保留。`)) {
+                    run('delete-task', { taskId: item.id }).catch(() => {});
+                  }
+                },
               }))
-            : h(Empty, null, '还没有任务。'),
+            : h(Empty, null, tasks.length ? '这个服务器下还没有任务。' : '还没有任务。'),
+          visibleTasks.length > shownTasks.length
+            ? h('div', { style: { marginTop: 6 } },
+                h(Button, { onClick: () => setShowAllTasks(true) }, `显示全部 ${visibleTasks.length} 条`))
+            : null,
         ),
 
         h(Section, {
