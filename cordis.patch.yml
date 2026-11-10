@@ -1,0 +1,4 @@
+# dsh-mesh: one bundle for every node. A node can be a parent, a child, or both.
+- insert:
+    - id: dsh-mesh
+      name: dsh-mesh
