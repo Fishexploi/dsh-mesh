@@ -1,127 +1,218 @@
-# DSH Mesh
+<div align="center">
 
-DSH Mesh connects multiple DeepSeek Harness (DSH) hosts on a LAN. One host can
-act as a parent, send tasks to child hosts, receive their results, and answer
-their sensitive-action approval requests. A machine can be both a child of one
-host and a parent of another.
+<img src="icon.svg" width="84" alt="DSH Mesh" />
 
-- One bundle for every node; the role is decided by the connection, not by a
-  separate install.
-- The parent dials, the child listens. A machine that is only a parent can turn
-  off its Mesh listener entirely, so it opens no inbound port.
-- Child grants permissions to a parent explicitly. A newly paired parent has no
-  permission until the child turns one on.
-- Child task sessions are ordinary DSH sessions: the child's workspace shows the
-  task, its session, and its current permission.
-- Approval requests from a child's agent are forwarded to the parent's Mesh
-  panel. If the parent is unavailable, the task waits for the configured timeout
-  and then fails; nothing is auto-approved.
-- Results are delivered with an acknowledgement and retried. If delivery keeps
-  failing, the result is kept on the child and pushed again when the parent
-  reconnects.
+# DSH Mesh · 多机互联
 
-## Install
+**让局域网里的多台 DSH，像一支团队一样工作。**
 
-Clone this repository on each machine:
+一台 DSH 当“上级”，把任务派给其他 DSH；子级在自己的工作区里干活，完成后把结果和文件交回来；遇到敏感操作，子级把审批请求送到上级，由上级点“允许”或“拒绝”。
+
+<p>
+  <img alt="version" src="https://img.shields.io/badge/version-0.1.2-2f81f7?style=flat-square" />
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" />
+  <img alt="dsh" src="https://img.shields.io/badge/DSH-%5E0.2.2--rc.1-8957e5?style=flat-square" />
+  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b949e?style=flat-square" />
+  <img alt="stars" src="https://img.shields.io/github/stars/Fishexploi/dsh-mesh?style=flat-square" />
+</p>
+
+[快速开始](#快速开始) · [功能](#功能一览) · [权限](#权限模型) · [原理](#它是怎么工作的) · [安全](#安全边界) · [English](README.en.md)
+
+</div>
+
+---
+
+## 为什么需要它
+
+- **不想一台台远程桌面/SSH 操作。** A 机器上的 agent 可以直接把任务派给 B、C、D。
+- **每台机器保留自己的环境。** 模型、工具、文件、审批策略都在各自机器上，不混在一起。
+- **结果自动回来。** 子级完成后，成果回到上级；用工具派出的任务还会唤醒上级的会话。
+- **权限边界清楚。** 子级默认不给上级任何权限；给多少，上级才能用多少。
+
+---
+
+## 功能一览
+
+| 能力 | 说明 |
+| --- | --- |
+| 局域网发现 | 同网段自动发现，也可手动填 IP/端口 |
+| 6 位配对码 | 第一次连接输入一次，之后用令牌自动重连 |
+| 一个插件、两种角色 | 谁拨号谁是上级；B 可以同时是 A 的子级、C 的上级 |
+| 纯上级模式 | A 可以关闭自己的监听端口，只保留出站连接 |
+| 子级授权 | 默认“不授予”；可选仅查看 / 工作区内修改 / 完全权限 |
+| 任务会话 | 子级为每个任务创建独立 DSH 会话和工作区，界面可见 |
+| 结果回传 | 文本 + 结果文件；父级可下载 |
+| 审批转发 | 子级 approval 送到父级，父级允许/拒绝；超时失败 |
+| 双向在线状态 | 上级和子级都显示对方在线/离线 |
+| 断线补投 | 成果发送失败重试 5 次，父级重连后继续投递 |
+| 防转派 | 上级派给 B 的任务，不能再被 B 转派给 C |
+
+---
+
+## 快速开始
+
+### 准备
+
+- 每台机器都安装了 **DSH `^0.2.2-rc.1`**，并且能正常对话。
+- 机器在同一个局域网内；子级机器放行 TCP `45900`（可在设置里改）。
+- 四台机器尽量使用同一个 DSH 版本。
+
+### 1. 在每台机器安装插件
 
 ```powershell
 git clone https://github.com/Fishexploi/dsh-mesh.git
 ```
 
-Then choose the cloned `dsh-mesh` folder in **Settings → Plugins → Install from
-file**. To install from npm instead, publish the package and run:
+打开 DSH：**设置 → 插件 → 从本地安装**，选择克隆下来的 `dsh-mesh` 目录。  
+安装后重载/重启一次，左侧栏会出现 **Mesh** 图标。
 
-```powershell
-dsh plugin --profile <profile> add dsh-mesh
+### 2. 子级打开配对码
+
+在 B 机器点开 **Mesh**，顶部会显示一个 6 位配对码。  
+如果 B 的防火墙弹窗，允许 DSH 监听 `45900`。
+
+### 3. 上级连接子级
+
+在 A 机器点开 **Mesh**：
+
+- 同网段：在“局域网发现”里找到 B，点“配对连接”，输入 B 的配对码。
+- 跨网段/广播被拦：在“手动连接”里填 B 的 IP、`45900`、配对码。
+
+连接成功后，双方都会显示对方“在线”。
+
+### 4. 子级给上级授权
+
+在 B 的 **Mesh → 我的上级** 里，把“授予上级的权限”切到需要的档位：
+
+- `仅可查看`
+- `工作区内修改`
+- `完全权限`
+
+> **默认是不授予。** 上级连上来之后没有任何权限，必须由子级手动打开开关；任务权限也不能超过这个档位。
+
+### 5. 上级派任务
+
+在 A 的 **我的下级** 里选 B → “派任务” → 写任务、选权限 → 发送。
+
+B 会创建一个独立 DSH 会话，标题是 `Mesh · 任务名`，工作区在设置里配置的根目录下。  
+B 的本地用户可以看到任务进行中，也可以停止任务，但不能替上级处理审批。
+
+---
+
+## 权限模型
+
+| 档位 | 子级本地执行 | 需要上级审批 |
+| --- | --- | --- |
+| 仅可查看 | 只读工作区，写操作被拒绝或上报 | 敏感操作上报 |
+| 工作区内修改 | 工作区内可读写 | 越界、联网、提权等操作上报 |
+| 完全权限 | 不做审批拦截 | 由子级本地承担风险 |
+
+规则很简单：
+
+- **子级是权限的源头。** 上级选得再高，也不能超过子级授予的档位。
+- **每次任务单独选权限。** 同一个上级，不同任务可以用不同档位。
+- **审批默认 10 分钟超时。** 上级一直不处理，任务失败，不会自动放行。
+
+---
+
+## 审批与结果
+
+### 审批
+
+子级 agent 触发 approval 时：
+
+1. 子级插件拦截请求，不弹给子级本地用户；
+2. 请求发到上级的 **Mesh → 审批**；
+3. 上级看到“哪个任务、哪个工具、什么原因”，点“允许一次”或“拒绝”；
+4. 决定回传，子级继续或终止。
+
+如果上级不在线，任务会等到超时，然后失败。
+
+### 结果
+
+任务结束后，子级把文本结果和结果文件回传：
+
+- 用 `mesh_task` 工具发起的任务，结果会回到发起会话，**空闲的上级会话会被唤醒**。
+- 从面板发起的任务，结果在“任务”里查看。
+- 发送失败会重试 5 次；仍失败则显示“成果发送失败，等待上级上线后调取”，父级重连后补投。
+
+---
+
+## 它是怎么工作的
+
+```
+A（上级）  ──── 拨号 / 任务 / 审批 ────▶  B（下级）
+   ▲                                      │
+   └────── 结果 / 审批请求 / 心跳 ◀───────┘
+
+B（上级）  ──── 拨号 / 任务 / 审批 ────▶  C（下级）
 ```
 
-Restart DSH (or reload the profile) after the first install. The **Mesh** icon
-appears in the left rail.
+- **谁拨号，谁是上级；谁接受，谁是下级。**
+- 同一个插件装在每台机器上；B 可以同时是 A 的子级和 C 的上级。
+- A 只连了 B，就只能直接给 B 发任务；要指挥 C，A 必须自己连 C。B 不能把 A 的任务转派给 C。
+- 传输是局域网 HTTP + NDJSON 长连接，没有第三方运行时依赖；默认端口 `45900`。
+- UDP `45901` 只用于“局域网发现”，被防火墙拦时用手动连接即可。
 
-The package has no third-party runtime dependencies and no install scripts.
+---
 
-## First connection
+## 安全边界
 
-1. On the child, open **Mesh** and note the six-digit pairing code.
-2. On the parent, open **Mesh → 手动连接**, enter the child's IP, port
-   (default `45900`), and the code. Same-subnet nodes also appear under
-   **局域网发现** automatically.
-3. On the child, open **我的上级** and grant a permission:
-   - `仅可查看`
-   - `工作区内修改`
-   - `完全权限`
+- **只建议在可信局域网使用。** 当前版本是明文 HTTP + 配对令牌，**没有 TLS**；不要把端口暴露到公网。
+- **子级默认零授权。** 新连上的上级没有任何权限；子级可以随时收回。
+- **不是远程 shell。** 上级发的是任务，子级的 agent、沙箱、工具策略仍然生效。
+- **结果按不可信内容处理。** 子级的输出回到上级后，不要让上级无条件执行高风险动作。
+- **只共享任务输出。** 结果文件通过受控下载端点回传，不需要把整个磁盘共享出去。
 
-   **No grant is given by default.** The parent cannot send a task until this
-   switch is on, and a task's permission can never exceed the grant.
-4. On the parent, choose the child, write the task, pick a permission, and send.
+---
 
-The child creates an isolated workspace under its configured root and an
-ordinary DSH session titled `Mesh · <task>`. The child's local user can watch the
-session and stop the task, but cannot answer the parent's approval request.
+## 当前限制
 
-## Permissions and approvals
+| 限制 | 说明 |
+| --- | --- |
+| 单上级 | 一个节点只能有一个上级，可以有多个下级 |
+| 无 TLS | 依赖可信局域网；后续再加 |
+| `ask_user_question` 未转发 | 目前只转发 approval |
+| 重启中断任务 | 节点重启时正在跑的任务标记失败；成果补投已支持 |
+| 文件上限 | 16 个文件 / 单文件 1.5 MB / 总计 8 MB |
+| DSH pre-1.0 | 插件 API 还会变；多台机器锁同一版本 |
 
-The child is the authority. Its local grant is the ceiling; the parent's choice
-for one task is clamped to that grant. A child should grant `完全权限` only to a
-parent it trusts with its local account.
+---
 
-When the child's agent asks for approval, the request appears in the parent's
-**审批** section with the tool and reason. The parent can allow once or reject.
-Approval timeout is configurable in **设置** (default 10 minutes); a timeout
-fails the task. `ask_user_question` forwarding is not implemented yet.
+## 开发与测试
 
-## Online state and result delivery
-
-A parent holds a long-lived event stream to each child; a child holds the other
-end for its parent. Both sides show online only while that stream is live. When
-a result cannot be delivered, the child retries it five times, marks it
-“成果发送失败，等待上级上线后调取”, and sends it again after the parent
-reconnects.
-
-## Security notes
-
-- Transport is plain HTTP with a per-connection random token and a pairing
-  code. Use it on a trusted LAN, or put both ends behind a private network /
-  TLS terminator. TLS is not implemented yet.
-- Do not expose the mesh port to the internet. The child listener accepts only
-  the narrow `/mesh` protocol, never DSH's owner `/api`.
-- A parent's task is a prompt for the child's agent, not a remote shell. The
-  child's sandbox, permission preset, and tool policy still apply.
-- Treat child results as untrusted content when they return to the parent.
-- Only share a task output directory, not a whole disk. Artifacts are copied
-  through the authenticated mesh connection and served from the parent's local
-  download endpoint.
-
-## Layout
-
-```
-dsh-mesh/
-  index.js           Host half: listener, parent dialer, tasks, approvals, API
-  client.js          Sidebar icon and main Mesh panel
-  cordis.patch.yml   Bundle row
-  locale/            Plugin-manager title and description
-  icon.svg
-```
-
-## Limitations
-
-- One parent per child (a child may have several children of its own).
-- A parent does not inherit a child's children; connect the grandchild directly
-  if the parent should task it.
-- In-flight tasks are marked failed on a node restart; durable task replay is
-  planned.
-- Artifacts are capped at 16 files / 1.5 MB each / 8 MB total per task.
-- `ask_user_question` forwarding is planned.
-- Requires DSH `^0.2.2-rc.1`; the host/client plugin contracts are still
-  pre-1.0, so pin the DSH version across machines.
-
-## Development
-
-The host transport has a dependency-free test harness:
+Host 端传输有一个零依赖的测试脚本：
 
 ```powershell
 node test-harness.mjs
 ```
 
-It starts two in-process mesh nodes on loopback, pairs them, dispatches a task,
-checks the parent acknowledgement, and exercises approval forwarding.
+它会启动两个回环地址上的 Mesh 节点，完成配对、授权、任务下发、结果确认和审批转发。
+
+### 项目结构
+
+```
+dsh-mesh/
+├─ index.js           Host 端：监听、拨号、任务、审批、文件
+├─ client.js          左侧栏图标 + Mesh 主面板
+├─ cordis.patch.yml   Bundle 入口
+├─ locale/            插件管理器标题与描述
+├─ icon.svg
+└─ test-harness.mjs
+```
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 DSH Mesh contributors
+
+---
+
+<div align="center">
+
+如果这个插件帮到了你，欢迎点一个 **Star** ⭐
+
+[报告问题](https://github.com/Fishexploi/dsh-mesh/issues) · [English README](README.en.md)
+
+</div>
