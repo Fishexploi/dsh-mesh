@@ -453,6 +453,10 @@ window.__ModuleLoader__.load({
       const [pairCode, setPairCode] = useState('');
       const [pairError, setPairError] = useState('');
       const [pairBusy, setPairBusy] = useState(false);
+      const [updateInfo, setUpdateInfo] = useState(null);
+      const [updateBusy, setUpdateBusy] = useState(false);
+      const [updateNotice, setUpdateNotice] = useState('');
+      const [updateError, setUpdateError] = useState('');
 
       if (snapshot.loading && !data) {
         return h('div', { style: { padding: 28, color: TOKEN.muted, fontSize: 12 } }, '正在连接 DSH Mesh 本地服务…');
@@ -523,6 +527,39 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const checkUpdate = async () => {
+        setUpdateBusy(true);
+        setUpdateError('');
+        setUpdateNotice('');
+        try {
+          const info = await store.act('update-check');
+          setUpdateInfo(info);
+        } catch (value) {
+          setUpdateError(value instanceof Error ? value.message : String(value));
+        } finally {
+          setUpdateBusy(false);
+        }
+      };
+
+      const applyUpdate = async () => {
+        if (updateBusy) return;
+        setUpdateBusy(true);
+        setUpdateError('');
+        setUpdateNotice('');
+        try {
+          const result = await store.act('update-apply');
+          setUpdateInfo(result);
+          setUpdateNotice(result.message || '更新完成');
+          if (result.updated && result.reloading) {
+            setTimeout(() => window.location.reload(), 2400);
+          }
+        } catch (value) {
+          setUpdateError(value instanceof Error ? value.message : String(value));
+        } finally {
+          setUpdateBusy(false);
+        }
+      };
+
       return h('div', {
         style: {
           height: '100%',
@@ -559,6 +596,33 @@ window.__ModuleLoader__.load({
           style: { marginTop: 12, padding: '9px 11px', borderRadius: 8, color: TOKEN.bad, background: `color-mix(in srgb, ${TOKEN.bad} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${TOKEN.bad} 30%, transparent)`, fontSize: 12 },
         }, node.error) : null,
         error ? h('div', { style: { marginTop: 10, color: TOKEN.bad, fontSize: 12 } }, error) : null,
+
+        h('div', {
+          style: {
+            marginTop: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
+            padding: '9px 11px',
+            borderRadius: 8,
+            border: `1px solid ${TOKEN.border}`,
+            background: TOKEN.layer,
+          },
+        },
+          h(Badge, { tone: 'neutral' }, `v${node.version || '?'}`),
+          h(Button, { disabled: updateBusy, onClick: checkUpdate }, updateBusy ? '检查中…' : '检查更新'),
+          updateInfo && updateInfo.available
+            ? h(Button, { kind: 'primary', disabled: updateBusy, onClick: applyUpdate }, `一键更新到 ${updateInfo.latest}`)
+            : null,
+          updateInfo && !updateInfo.available && !updateBusy
+            ? h('span', { style: { fontSize: 11, color: TOKEN.muted } }, '已是最新版本')
+            : null,
+          updateNotice ? h('span', { style: { fontSize: 11, color: TOKEN.good } }, updateNotice) : null,
+          updateError ? h('span', { style: { fontSize: 11, color: TOKEN.bad } }, updateError) : null,
+          h('span', { style: { flex: 1 } }),
+          h('span', { style: { fontSize: 11, color: TOKEN.muted } }, '更新来自 GitHub · 更新后会自动重载'),
+        ),
 
         h('div', {
           style: {

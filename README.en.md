@@ -78,6 +78,17 @@ new message in the same session. The default task permission is `工作区内修
 clamped to the child's grant; use the panel when you need an explicit `完全权限`
 task. The real hostname remains visible on the child card in the panel.
 
+## Updates
+
+The Mesh panel shows the current version and offers **Check for updates** and
+**Update to x.y.z**. The update reads `package.json` from the GitHub `main`
+branch; it prefers `git pull --ff-only` in the plugin directory and falls back to
+downloading the changed files. With HMR the plugin reloads automatically and the
+page refreshes; without HMR, restart DSH.
+
+Bump `version` in `package.json` before pushing a release, otherwise no one sees
+an update.
+
 ## Permissions and approvals
 
 The child is the authority. Its local grant is the ceiling; the parent's choice

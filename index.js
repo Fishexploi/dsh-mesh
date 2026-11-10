@@ -10,16 +10,33 @@
  *   POST /mesh/rpc     parent -> child commands
  */
 import { createServer as createHttpServer, request as httpRequest } from 'node:http'
+import { get as httpsGetRequest } from 'node:https'
+import { execFile } from 'node:child_process'
 import { createSocket } from 'node:dgram'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { join, extname, resolve, sep } from 'node:path'
+import { dirname, join, extname, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const PROTOCOL = 1
 const DISCOVERY_PORT = 45901
 const DEFAULT_PORT = 45900
+const UPDATE_REPO = 'Fishexploi/dsh-mesh'
+const UPDATE_BRANCH = 'main'
+const UPDATE_FILES = [
+  'index.js',
+  'client.js',
+  'cordis.patch.yml',
+  'package.json',
+  'icon.svg',
+  'locale/en.json',
+  'locale/zh.json',
+  'README.md',
+  'README.en.md',
+  'LICENSE',
+]
 const PERMISSIONS = ['none', 'read-only', 'workspace-write', 'danger-full-access']
 const RANK = { none: 0, 'read-only': 1, 'workspace-write': 2, 'danger-full-access': 3 }
 const TASK_LIMIT = 120
@@ -49,6 +66,54 @@ function short(value, max = 400) {
 
 function messageOf(error) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function compareVersions(a, b) {
+  const parse = value => String(value || '0').split('-')[0].split('.').map(part => Number(part) || 0)
+  const left = parse(a)
+  const right = parse(b)
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) - (right[i] || 0)
+  }
+  return 0
+}
+
+function httpsBuffer(url, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const req = httpsGetRequest(url, {
+      headers: {
+        'user-agent': 'dsh-mesh-updater',
+        accept: '*/*',
+      },
+    }, res => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume()
+        const next = new URL(res.headers.location, url).toString()
+        resolve(httpsBuffer(next, timeoutMs))
+        return
+      }
+      if (res.statusCode !== 200) {
+        res.resume()
+        reject(new Error('HTTP ' + res.statusCode + ' ' + url))
+        return
+      }
+      const chunks = []
+      let size = 0
+      res.on('data', chunk => {
+        size += chunk.length
+        if (size > 4 * 1024 * 1024) {
+          reject(new Error('下载内容过大'))
+          req.destroy()
+          return
+        }
+        chunks.push(chunk)
+      })
+      res.on('end', () => resolve(Buffer.concat(chunks)))
+      res.on('error', reject)
+    })
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('下载超时')))
+    req.on('error', reject)
+  })
 }
 
 function json(res, status, value) {
@@ -180,6 +245,8 @@ class Mesh {
     this.ctx = ctx
     this.config = config && typeof config === 'object' ? config : {}
     this.dir = this.config.stateDir || join(dshHome(), 'state', 'dsh-mesh')
+    this.packageDir = dirname(fileURLToPath(import.meta.url))
+    this.version = '0.0.0'
     this.file = join(this.dir, 'state.json')
     this.downloads = join(this.dir, 'downloads')
     this.state = this.defaultState()
@@ -242,6 +309,7 @@ class Mesh {
     await mkdir(this.downloads, { recursive: true })
     this.state.stage = 'load'
     await this.load()
+    this.version = await this.readVersion()
     await mkdir(this.state.workspaceRoot, { recursive: true })
     this.recoverTasks()
     this.state.stage = 'tools'
@@ -265,6 +333,15 @@ class Mesh {
       this.serverError = '监听端口 ' + this.state.listenPort + ' 失败：' + messageOf(error)
       console.error('[dsh-mesh] ' + this.serverError)
       this.save()
+    }
+  }
+
+  async readVersion() {
+    try {
+      const manifest = JSON.parse(await readFile(join(this.packageDir, 'package.json'), 'utf8'))
+      return String(manifest.version || '0.0.0')
+    } catch {
+      return '0.0.0'
     }
   }
 
@@ -1727,6 +1804,8 @@ class Mesh {
     if (action === 'task') return this.dispatchTask(body)
     if (action === 'cancel') return this.cancelTask(String(body.taskId || ''))
     if (action === 'approval') return this.approve(body)
+    if (action === 'update-check') return this.checkUpdate()
+    if (action === 'update-apply') return this.applyUpdate()
     if (action === 'pairing-code') {
       if (this.state.parent) throw new Error('已有上级，不能刷新配对码')
       this.state.pairingCode = sixDigits()
@@ -1764,6 +1843,119 @@ class Mesh {
     this.save()
     this.broadcastNow()
     return this.view()
+  }
+
+  rawUpdateUrl(file) {
+    return 'https://raw.githubusercontent.com/' + UPDATE_REPO + '/' + UPDATE_BRANCH + '/' + file + '?dsh_mesh=' + Date.now()
+  }
+
+  async checkUpdate() {
+    const current = await this.readVersion()
+    const raw = await httpsBuffer(this.rawUpdateUrl('package.json'))
+    let manifest
+    try {
+      manifest = JSON.parse(raw.toString('utf8'))
+    } catch {
+      throw new Error('更新源返回了无效的 package.json')
+    }
+    const latest = String(manifest.version || '0.0.0')
+    return {
+      current,
+      latest,
+      available: compareVersions(latest, current) > 0,
+      repo: 'https://github.com/' + UPDATE_REPO,
+      checkedAt: now(),
+    }
+  }
+
+  gitPull() {
+    return new Promise((resolve, reject) => {
+      execFile('git', ['-C', this.packageDir, 'pull', '--ff-only'], {
+        timeout: 30000,
+        windowsHide: true,
+      }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(String(stderr || stdout || error.message).trim()))
+          return
+        }
+        resolve(String(stdout || '').trim())
+      })
+    })
+  }
+
+  async downloadUpdateFiles(latest) {
+    const files = new Map()
+    for (const file of UPDATE_FILES) {
+      const data = await httpsBuffer(this.rawUpdateUrl(file))
+      if (file === 'package.json') {
+        let manifest
+        try {
+          manifest = JSON.parse(data.toString('utf8'))
+        } catch {
+          throw new Error('更新源 package.json 无效')
+        }
+        if (String(manifest.version || '') !== latest) {
+          throw new Error('更新源版本发生变化，请重新检查更新')
+        }
+      }
+      files.set(file, data)
+    }
+    for (const [file, data] of files) {
+      const target = join(this.packageDir, file)
+      await mkdir(dirname(target), { recursive: true })
+      const temp = target + '.' + process.pid + '.mesh-update'
+      await writeFile(temp, data)
+      await rename(temp, target)
+    }
+  }
+
+  async applyUpdate() {
+    const check = await this.checkUpdate()
+    if (!check.available) {
+      return { ...check, updated: false, message: '已经是最新版本' }
+    }
+    let method = 'files'
+    let gitError = ''
+    if (existsSync(join(this.packageDir, '.git'))) {
+      try {
+        await this.gitPull()
+        const pulled = await this.readVersion()
+        if (compareVersions(pulled, check.latest) >= 0) {
+          method = 'git'
+          this.version = pulled
+        } else {
+          gitError = 'git pull 后版本仍为 ' + pulled
+        }
+      } catch (error) {
+        gitError = messageOf(error)
+      }
+    }
+    if (method !== 'git') {
+      await this.downloadUpdateFiles(check.latest)
+      this.version = await this.readVersion()
+    }
+    if (compareVersions(this.version, check.latest) < 0) {
+      throw new Error('更新后版本仍为 ' + this.version + '，请检查安装目录是否可写')
+    }
+    const hmr = this.ctx.get('hmr')
+    const reloading = Boolean(hmr && typeof hmr.runExclusive === 'function' && typeof hmr.reconcileProfile === 'function')
+    if (reloading) {
+      setTimeout(() => {
+        hmr.runExclusive(() => hmr.reconcileProfile()).catch(error => {
+          console.error('[dsh-mesh] hot reload failed: ' + messageOf(error))
+        })
+      }, 1200)
+    }
+    return {
+      updated: true,
+      from: check.current,
+      to: this.version,
+      method,
+      gitError,
+      reloading,
+      restartRequired: !reloading,
+      message: reloading ? '更新完成，正在重载插件…' : '更新完成，请重启 DSH',
+    }
   }
 
   async downloadArtifact(url, res) {
@@ -1866,6 +2058,7 @@ class Mesh {
         error: this.serverError,
         stage: this.state.stage,
         build: this.state.build,
+        version: this.version,
         allowParent: this.state.allowParent,
         workspaceRoot: this.state.workspaceRoot,
         pairingCode: this.state.parent || !this.state.listenEnabled ? null : this.state.pairingCode,

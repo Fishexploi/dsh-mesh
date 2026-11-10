@@ -9,7 +9,7 @@
 一台 DSH 当“上级”，把任务派给其他 DSH；子级在自己的工作区里干活，完成后把结果和文件交回来；遇到敏感操作，子级把审批请求送到上级，由上级点“允许”或“拒绝”。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-0.1.2-2f81f7?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.1.3-2f81f7?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" />
   <img alt="dsh" src="https://img.shields.io/badge/DSH-%5E0.2.2--rc.1-8957e5?style=flat-square" />
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b949e?style=flat-square" />
@@ -41,6 +41,7 @@
 | 纯上级模式 | A 可以关闭自己的监听端口，只保留出站连接 |
 | 子级授权 | 默认“不授予”；可选仅查看 / 工作区内修改 / 完全权限 |
 | 自动短名 + @ 菜单 | 连上的子级自动叫 服务器A/B/C；聊天里输入 `@` 直接选 |
+| 检查更新 / 一键更新 | Mesh 面板里检查 GitHub 新版本，一键拉取并热重载 |
 | 任务会话 | 子级为每个任务创建独立 DSH 会话和工作区，界面可见 |
 | 结果回传 | 文本 + 结果文件；父级可下载 |
 | 审批转发 | 子级 approval 送到父级，父级允许/拒绝；超时失败 |
@@ -122,6 +123,21 @@ B 的本地用户可以看到任务进行中，也可以停止任务，但不能
 需要“完全权限”时，还是建议在 Mesh 面板里明确选择。
 
 > `@` 后面的名字用面板显示的 **服务器A/B/C**，或直接用节点 id。真实机器名仍会显示在下级卡片的第二行。
+
+---
+
+## 更新
+
+Mesh 面板顶部会显示当前版本号：
+
+- **检查更新**：读取 GitHub `main` 分支的 `package.json`，和本机版本比较。
+- **一键更新到 x.y.z**：优先在插件目录执行 `git pull --ff-only`；不是 git 安装时，回退为从 GitHub 下载更新文件。
+- 更新完成后，如果当前 profile 启用了 HMR，会自动重载插件；页面会自动刷新。
+- 没有 HMR 时会提示“请重启 DSH”。
+
+> 更新源固定为 `Fishexploi/dsh-mesh` 的 `main` 分支。发布新版本时，先把 `package.json` 的 `version` 改大再推送，别人点“检查更新”才会看到新版本。
+>
+> 如果你在插件目录里改过源码，`git pull` 可能失败，此时会走文件覆盖；本地改动会被新版本覆盖，建议先提交或备份。
 
 ---
 
