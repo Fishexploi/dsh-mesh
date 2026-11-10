@@ -23,6 +23,10 @@ host and a parent of another.
 - Results are delivered with an acknowledgement and retried. If delivery keeps
   failing, the result is kept on the child and pushed again when the parent
   reconnects.
+- A finished task can be continued with `mesh_reply`: the follow-up runs in the
+  child's existing task session and workspace, so nothing has to be re-briefed.
+- Results are landed on disk in full and the model only sees a bounded preview,
+  so long reports do not flood the parent's context.
 
 ## Install
 
@@ -119,6 +123,34 @@ user; the Mesh task list keeps the raw result and files. When a result cannot be
 delivered, the child retries it five times, marks it “成果发送失败，等待上级上线后调取”,
 and sends it again after the parent reconnects.
 
+## Continuing a task
+
+`mesh_reply { taskId, message }` — or **继续追问** on the task card — sends one
+more instruction into the child's existing `Mesh · <task>` session. The child
+keeps its history and workspace, so it re-reads its own `REPORT.md` instead of
+being briefed again; the new result comes back through the same inbox path and
+the card counts the round. Both nodes must be 0.2.0 or newer, the child must be
+online, the task must not still be running, and the child's session must still be
+in its local store (otherwise the call fails and a fresh `mesh_task` is the way).
+
+## Tokens and disk
+
+Transport does not cost tokens; what the model reads does. Every result is
+written in full to `<stateDir>/results/<taskId>.md`, and only a budgeted preview
+reaches the model:
+
+| Where | What |
+| --- | --- |
+| injected notice | one line: which task returned, that the full text is on disk |
+| `mesh_inbox` (default) | first `previewChars` characters (1200), `resultFile`, real length |
+| `mesh_inbox { full: true }` | the report itself, read from disk, still bounded |
+| `mesh_tasks` | metadata only, no result text |
+
+The child is also told to put detail in the workspace's `REPORT.md` and to keep
+its reply near 800 characters, and a follow-up re-sends only the new instruction.
+**设置 → 结果摘要字数** lowers the preview budget further at the cost of one extra
+file read when detail is needed.
+
 ## Security notes
 
 - Transport is plain HTTP with a per-connection random token and a pairing
@@ -151,6 +183,10 @@ dsh-mesh/
   if the parent should task it.
 - In-flight tasks are marked failed on a node restart; durable task replay is
   planned.
+- A follow-up reuses the child's task session, so a deleted session means a fresh
+  task instead.
+- A follow-up round carries only the files that round produced; earlier artifacts
+  are not resent.
 - Artifacts are capped at 16 files / 1.5 MB each / 8 MB total per task.
 - `ask_user_question` forwarding is planned.
 - Requires DSH `^0.2.2-rc.1`; the host/client plugin contracts are still
@@ -165,4 +201,5 @@ node test-harness.mjs
 ```
 
 It starts two in-process mesh nodes on loopback, pairs them, dispatches a task,
-checks the parent acknowledgement, and exercises approval forwarding.
+checks the parent acknowledgement, and exercises approval forwarding, result
+landing with a preview budget, and one follow-up round in the original session.

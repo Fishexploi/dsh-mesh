@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "DSH Mesh",
-    "description": "Connect DSH hosts on your LAN, delegate tasks to child hosts, and approve their sensitive actions from the parent."
+    "description": "Connect DSH hosts on your LAN, delegate and continue tasks on child hosts, and approve their sensitive actions from the parent."
   }
 }

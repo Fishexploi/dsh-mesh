@@ -247,16 +247,37 @@ window.__ModuleLoader__.load({
       }, children);
     }
 
-    function TaskCard({ task, nodeName, onCancel }) {
+    function TaskCard({ task, nodeName, onCancel, onReply }) {
       const [open, setOpen] = useState(false);
+      const [replyOpen, setReplyOpen] = useState(false);
+      const [replyText, setReplyText] = useState('');
+      const [replyBusy, setReplyBusy] = useState(false);
+      const [replyError, setReplyError] = useState('');
       const active = task.status === 'queued' || task.status === 'running';
       const tone = task.status === 'failed' ? 'bad' : task.status === 'done' ? 'good' : task.status === 'running' ? 'warn' : 'neutral';
       const artifacts = task.artifacts || [];
+      const rounds = task.followups || 0;
+      const canReply = Boolean(onReply) && task.direction === 'out' && !active;
+      const sendReply = async () => {
+        if (!canReply || replyBusy) return;
+        setReplyError('');
+        setReplyBusy(true);
+        try {
+          await onReply(task, replyText.trim());
+          setReplyText('');
+          setReplyOpen(false);
+        } catch (value) {
+          setReplyError(value instanceof Error ? value.message : String(value));
+        } finally {
+          setReplyBusy(false);
+        }
+      };
       return h(Card, { style: { padding: 12, marginBottom: 8 } },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
           h(Badge, { tone: task.direction === 'in' ? 'warn' : 'neutral' }, task.direction === 'in' ? '接收' : '派出'),
           h('strong', { style: { fontSize: 13, fontWeight: 600 } }, task.title || '未命名任务'),
           h(Badge, { tone }, STATUS_LABEL[task.status] || task.status),
+          rounds ? h(Badge, { tone: 'neutral' }, `续聊 ${rounds}`) : null,
           task.approvalPending ? h(Badge, { tone: 'warn' }, '等待审批') : null,
           task.unread ? h(Badge, { tone: 'good' }, '新结果') : null,
           task.delivery === 'failed' ? h(Badge, { tone: 'bad' }, '成果待调取') : null,
@@ -271,11 +292,32 @@ window.__ModuleLoader__.load({
         ),
         task.error ? h('div', { style: { marginTop: 8, color: TOKEN.bad, fontSize: 12, whiteSpace: 'pre-wrap' } }, task.error) : null,
         task.deliveryError ? h('div', { style: { marginTop: 6, color: TOKEN.warn, fontSize: 11 } }, task.deliveryError) : null,
-        h('div', { style: { display: 'flex', gap: 8, marginTop: 9, alignItems: 'center' } },
+        h('div', { style: { display: 'flex', gap: 8, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' } },
           h(Button, { onClick: () => setOpen(value => !value) }, open ? '收起结果' : '查看结果'),
+          canReply ? h(Button, { kind: 'primary', onClick: () => setReplyOpen(value => !value) }, replyOpen ? '收起追问' : '继续追问') : null,
           active ? h(Button, { kind: 'danger', onClick: () => onCancel(task) }, '取消') : null,
           artifacts.length ? h('span', { style: { fontSize: 11, color: TOKEN.muted } }, `${artifacts.length} 个结果文件`) : null,
         ),
+        replyOpen ? h('div', { style: { marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 } },
+          h(Field, {
+            label: '追加要求',
+            hint: '子级在原来的任务会话里继续处理，不新开会话、也不用重新交代背景。',
+          },
+            h('textarea', {
+              value: replyText,
+              rows: 3,
+              autoFocus: true,
+              placeholder: '例如：改动集中在配置项，顺带给一段回滚步骤。',
+              onChange: event => setReplyText(event.target.value),
+              style: { ...inputStyle, resize: 'vertical', lineHeight: 1.55 },
+            }),
+          ),
+          replyError ? h('div', { style: { color: TOKEN.bad, fontSize: 12 } }, replyError) : null,
+          h('div', { style: { display: 'flex', gap: 8 } },
+            h(Button, { kind: 'primary', disabled: replyBusy || !replyText.trim(), onClick: sendReply }, replyBusy ? '发送中…' : '发送追问'),
+            h(Button, { onClick: () => setReplyOpen(false), disabled: replyBusy }, '取消'),
+          ),
+        ) : null,
         open ? h('div', { style: { marginTop: 10 } },
           h('pre', {
             style: {
@@ -293,6 +335,19 @@ window.__ModuleLoader__.load({
               overflow: 'auto',
             },
           }, task.resultText || '（还没有结果）'),
+          task.resultTruncated
+            ? h('div', { style: { marginTop: 6, fontSize: 11, color: TOKEN.muted } },
+                `已截取前 ${task.resultText.length} 字符（全文 ${task.resultChars} 字符）。`,
+                task.resultFile
+                  ? h('a', {
+                      href: `/mesh/api/result?taskId=${encodeURIComponent(task.id)}`,
+                      target: '_blank',
+                      rel: 'noreferrer',
+                      style: { marginLeft: 6, color: TOKEN.brand, textDecoration: 'none' },
+                    }, '查看完整报告')
+                  : null,
+              )
+            : null,
           artifacts.length ? h('div', { style: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 } },
             artifacts.map(artifact => task.direction === 'out'
               ? h('a', {
@@ -370,7 +425,7 @@ window.__ModuleLoader__.load({
           h(Button, { kind: 'danger', onClick: () => onDisconnect(child) }, '断开'),
         ),
         h('div', { style: { marginTop: 6, fontSize: 11, color: TOKEN.muted } },
-          `${child.name || child.id} · ${child.host}:${child.port}`,
+          `${child.name || child.id} · ${child.host}:${child.port}${child.version ? ` · v${child.version}` : ''}`,
         ),
         child.grant === 'none'
           ? h('div', { style: { marginTop: 7, fontSize: 11, color: TOKEN.warn } }, '对方还没有在本机授予任务权限；需要子级在「我的上级」里打开权限开关。')
@@ -707,6 +762,7 @@ window.__ModuleLoader__.load({
                 onCancel: item => {
                   if (window.confirm(`取消任务「${item.title}」？`)) run('cancel', { taskId: item.id }).catch(() => {});
                 },
+                onReply: (item, message) => run('reply', { taskId: item.id, message }),
               }))
             : h(Empty, null, '还没有任务。'),
         ),
@@ -722,7 +778,7 @@ window.__ModuleLoader__.load({
                 onSave: value => run('settings', value).then(() => setSettingsOpen(false)),
               })
             : h('div', { style: { fontSize: 12, color: TOKEN.muted } },
-                `监听端口 ${node.listenPort} · 工作区 ${node.workspaceRoot} · 审批超时 ${Math.round((node.approvalTimeoutMs || 0) / 60000)} 分钟`,
+                `监听端口 ${node.listenPort} · 工作区 ${node.workspaceRoot} · 审批超时 ${Math.round((node.approvalTimeoutMs || 0) / 60000)} 分钟 · 结果摘要 ${node.previewChars || 1200} 字`,
               ),
         ),
 
@@ -793,6 +849,7 @@ window.__ModuleLoader__.load({
       const [listenEnabled, setListenEnabled] = useState(Boolean(node.listenEnabled));
       const [workspaceRoot, setWorkspaceRoot] = useState(node.workspaceRoot || '');
       const [timeoutMinutes, setTimeoutMinutes] = useState(String(Math.round((node.approvalTimeoutMs || 600000) / 60000)));
+      const [previewChars, setPreviewChars] = useState(String(node.previewChars || 1200));
       const [error, setError] = useState('');
 
       const save = async () => {
@@ -805,6 +862,7 @@ window.__ModuleLoader__.load({
             listenEnabled,
             workspaceRoot,
             approvalTimeoutMs: Math.max(5, Number(timeoutMinutes) || 10) * 60000,
+            previewChars: Math.max(200, Number(previewChars) || 1200),
           });
         } catch (value) {
           setError(value instanceof Error ? value.message : String(value));
@@ -828,6 +886,8 @@ window.__ModuleLoader__.load({
         ),
         h(Field, { label: '审批超时（分钟）', hint: '上级一直不处理审批时，任务会在超时后失败' },
           h(Input, { value: timeoutMinutes, inputMode: 'numeric', onChange: event => setTimeoutMinutes(event.target.value) })),
+        h(Field, { label: '结果摘要字数', hint: '模型默认只看到这么多字符；全文始终落盘，需要时再读文件。调小更省令牌。' },
+          h(Input, { value: previewChars, inputMode: 'numeric', onChange: event => setPreviewChars(event.target.value) })),
         error ? h('div', { style: { color: TOKEN.bad, fontSize: 12 } }, error) : null,
         h('div', { style: { display: 'flex', gap: 8 } },
           h(Button, { kind: 'primary', disabled: busy, onClick: save }, busy ? '保存中…' : '保存设置'),
