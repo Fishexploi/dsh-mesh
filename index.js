@@ -1867,17 +1867,54 @@ class Mesh {
     try {
       const raw = await httpsBuffer('https://api.github.com/repos/' + UPDATE_REPO + '/commits/' + UPDATE_BRANCH + '?dsh_mesh=' + Date.now())
       const commit = JSON.parse(raw.toString('utf8'))
-      return typeof commit.sha === 'string' ? commit.sha : ''
+      if (typeof commit.sha === 'string' && /^[0-9a-f]{40}$/.test(commit.sha)) return commit.sha
     } catch {
-      return ''
+      // The unauthenticated API allows 60 requests an hour per IP and answers
+      // 403 once spent; the feed and ls-remote below are not rate limited.
     }
+    const local = await this.remoteHead()
+    if (local) return local
+    try {
+      const feed = await httpsBuffer('https://github.com/' + UPDATE_REPO + '/commits/' + UPDATE_BRANCH + '.atom')
+      const match = /Grit::Commit\/([0-9a-f]{40})/.exec(feed.toString('utf8'))
+      if (match) return match[1]
+    } catch {
+      // Fall through: the caller reports an explicit failure.
+    }
+    return ''
+  }
+
+  /** Commit at the remote branch tip of this git checkout, or '' for zip installs. */
+  remoteHead() {
+    if (!existsSync(join(this.packageDir, '.git'))) return Promise.resolve('')
+    return new Promise(resolve => {
+      const done = (error, stdout) => {
+        if (error) return resolve('')
+        const match = /^([0-9a-f]{40})\s/.exec(String(stdout || '').trim())
+        resolve(match ? match[1] : '')
+      }
+      try {
+        execFile('git', ['-C', this.packageDir, 'ls-remote', 'origin', 'refs/heads/' + UPDATE_BRANCH], {
+          timeout: 20000,
+          windowsHide: true,
+        }, done)
+      } catch {
+        // A sandbox or a missing git binary must not fail the version check.
+        resolve('')
+      }
+    })
   }
 
   async checkUpdate() {
     const current = await this.readVersion()
     const sha = await this.updateCommit()
-    const ref = sha || UPDATE_BRANCH
-    const raw = await httpsBuffer(this.rawUpdateUrl('package.json', ref, !sha))
+    // raw.githubusercontent.com caches every branch path (max-age=300, and in
+    // practice longer) and ignores both query strings and request cache headers,
+    // so reading `<branch>/package.json` keeps answering "already latest" long
+    // after a release was pushed. Only a commit-pinned URL reports what is
+    // actually published, so refuse to judge without one.
+    if (!sha) throw new Error('无法确认最新版本：GitHub API 限流且拿不到提交记录（需要能访问 github.com），请稍后重试')
+    const raw = await httpsBuffer(this.rawUpdateUrl('package.json', sha))
     let manifest
     try {
       manifest = JSON.parse(raw.toString('utf8'))
