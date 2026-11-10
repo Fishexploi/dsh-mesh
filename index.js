@@ -199,6 +199,8 @@ class Mesh {
     this.running = 0
     this.queue = []
     this.workerSessions = new Set()
+    this.chatDisposers = new Map()
+    this.intercepts = new Map()
     this.saveTimer = null
     this.stopped = false
     this.ready = false
@@ -246,6 +248,8 @@ class Mesh {
     this.registerTools()
     this.state.stage = 'api'
     this.registerApi()
+    this.state.stage = 'chat'
+    this.startChatDispatch()
     this.state.stage = 'listen'
     try {
       if (this.state.listenEnabled) {
@@ -1479,6 +1483,100 @@ class Mesh {
     }
   }
 
+  // ── chat @ dispatch ─────────────────────────────────────────────────────
+
+  startChatDispatch() {
+    const attach = agent => {      if (!agent || !agent.ctx || this.workerSessions.has(agent.id) || this.chatDisposers.has(agent.id)) return
+      try {
+        const dispose = agent.ctx.on('agent/pre-step', async (payload, next) => {
+          return this.handleChatPreStep(payload, next)
+        })
+        this.chatDisposers.set(agent.id, dispose)
+      } catch (error) {
+        console.log('[dsh-mesh] chat dispatch listener skipped: ' + messageOf(error))
+      }
+    }
+    this.ctx.effect(() => {
+      const offCreated = this.ctx.on('agent/created', ({ agent }) => attach(agent))
+      const offDisposed = this.ctx.on('agent/disposed', ({ agent }) => {
+        const dispose = this.chatDisposers.get(agent.id)
+        if (dispose) dispose()
+        this.chatDisposers.delete(agent.id)
+      })
+      for (const agent of this.ctx.agents.list()) attach(agent)
+      this.state.chatReady = true
+      this.save()
+      return () => {
+        offCreated()
+        offDisposed()
+        for (const dispose of this.chatDisposers.values()) dispose()
+        this.chatDisposers.clear()
+        this.state.chatReady = false
+      }
+    })
+  }
+
+  async handleChatPreStep(payload, next) {
+    const decision = await next()
+    if (decision.kind !== 'enter' || !decision.messages || !decision.messages.length) return decision
+    if (this.workerSessions.has(payload.agent.id)) return decision
+    let changed = false
+    const messages = []
+    for (const message of decision.messages) {
+      const content = Array.isArray(message.content) ? message.content : []
+      const text = content
+        .filter(block => block && block.type === 'text')
+        .map(block => block.text)
+        .join('\n')
+      const match = /^\s*@([^\s:：,，]+)[\s:：,，]+([\s\S]+)$/.exec(text)
+      if (!match) {
+        messages.push(message)
+        continue
+      }
+      const peer = match[1].trim()
+      const child = Object.values(this.state.children).find(item =>
+        item.id === peer || item.name.toLowerCase() === peer.toLowerCase())
+      if (!child) {
+        messages.push(message)
+        continue
+      }
+      const prompt = match[2].trim()
+      if (!prompt) {
+        messages.push(message)
+        continue
+      }
+      const key = String(message.id || '') + '|' + child.id
+      let status = this.intercepts.get(key)
+      if (!status) {
+        try {
+          const permissionValue = rank(child.grant) >= 2 ? 'workspace-write' : child.grant
+          const firstLine = prompt.split('\n')[0].trim()
+          const result = await this.dispatchTask({
+            peerId: child.id,
+            prompt,
+            title: firstLine.slice(0, 24),
+            permission: permissionValue,
+            parentSessionId: payload.agent.id,
+          })
+          status = '[DSH Mesh] 已把任务派给「' + child.name + '」：' + firstLine + '\n任务号：' + result.taskId + '。结果会作为一条新消息回到这里。'
+        } catch (error) {
+          status = '[DSH Mesh] 派发失败：' + messageOf(error)
+        }
+        this.intercepts.set(key, status)
+        if (this.intercepts.size > 200) {
+          const first = this.intercepts.keys().next()
+          if (!first.done) this.intercepts.delete(first.value)
+        }
+      }
+      messages.push({
+        ...message,
+        content: [{ type: 'text', text: status }],
+      })
+      changed = true
+    }
+    return changed ? { ...decision, messages } : decision
+  }
+
   // ── model tools ─────────────────────────────────────────────────────────
 
   registerTools() {
@@ -1750,6 +1848,7 @@ class Mesh {
         workspaceRoot: this.state.workspaceRoot,
         pairingCode: this.state.parent || !this.state.listenEnabled ? null : this.state.pairingCode,
         ready: this.ready,
+        chatReady: Boolean(this.state.chatReady),
         approvalTimeoutMs: this.state.settings.approvalTimeoutMs,
         maxConcurrent: this.state.settings.maxConcurrent,
       },

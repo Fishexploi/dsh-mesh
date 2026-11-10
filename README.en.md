@@ -61,6 +61,17 @@ The child creates an isolated workspace under its configured root and an
 ordinary DSH session titled `Mesh · <task>`. The child's local user can watch the
 session and stop the task, but cannot answer the parent's approval request.
 
+You can also dispatch from any chat without opening the Mesh panel:
+
+```text
+@B check the login module and list the problems you find
+```
+
+The host intercepts the message, sends it to B, and replaces the model-visible
+input with a short dispatch status. The result arrives later as a new message in
+the same session. The default task permission is `工作区内修改`, clamped to the
+child's grant; use the panel when you need an explicit `完全权限` task.
+
 ## Permissions and approvals
 
 The child is the authority. Its local grant is the ceiling; the parent's choice

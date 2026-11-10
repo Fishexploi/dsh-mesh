@@ -31,7 +31,7 @@ const ctx = {
     rename: async () => ({}),
   },
   permissionPresets: { set: () => {} },
-  agents: { get: () => undefined },
+  agents: { get: () => undefined, list: () => [] },
 }
 
 const a = new Mesh(ctx, {

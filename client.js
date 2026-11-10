@@ -178,8 +178,9 @@ window.__ModuleLoader__.load({
       return h('button', { type, title, onClick, disabled, style: base }, children);
     }
 
-    function Card({ children, style }) {
+    function Card({ children, style, ...rest }) {
       return h('div', {
+        ...rest,
         style: {
           border: `1px solid ${TOKEN.border}`,
           background: TOKEN.layer,
@@ -446,6 +447,10 @@ window.__ModuleLoader__.load({
       const [manualHost, setManualHost] = useState('');
       const [manualPort, setManualPort] = useState('45900');
       const [manualCode, setManualCode] = useState('');
+      const [pairing, setPairing] = useState(null);
+      const [pairCode, setPairCode] = useState('');
+      const [pairError, setPairError] = useState('');
+      const [pairBusy, setPairBusy] = useState(false);
 
       if (snapshot.loading && !data) {
         return h('div', { style: { padding: 28, color: TOKEN.muted, fontSize: 12 } }, '正在连接 DSH Mesh 本地服务…');
@@ -476,13 +481,29 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const connectDiscovered = async item => {
-        const code = window.prompt(`输入「${item.name}」的 6 位配对码`, '');
-        if (code == null) return;
+      const connectDiscovered = item => {
+        setPairing(item);
+        setPairCode('');
+        setPairError('');
+      };
+
+      const submitPair = async () => {
+        if (!pairing || pairBusy) return;
+        setPairBusy(true);
+        setPairError('');
         try {
-          await run('connect', { id: item.id, name: item.name, host: item.host, port: item.port, code: code.trim() });
-        } catch {
-          // run() already surfaced the error.
+          await run('connect', {
+            id: pairing.id,
+            name: pairing.name,
+            host: pairing.host,
+            port: pairing.port,
+            code: pairCode.trim(),
+          });
+          setPairing(null);
+        } catch (value) {
+          setPairError(value instanceof Error ? value.message : String(value));
+        } finally {
+          setPairBusy(false);
         }
       };
 
@@ -532,6 +553,23 @@ window.__ModuleLoader__.load({
           style: { marginTop: 12, padding: '9px 11px', borderRadius: 8, color: TOKEN.bad, background: `color-mix(in srgb, ${TOKEN.bad} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${TOKEN.bad} 30%, transparent)`, fontSize: 12 },
         }, node.error) : null,
         error ? h('div', { style: { marginTop: 10, color: TOKEN.bad, fontSize: 12 } }, error) : null,
+
+        h('div', {
+          style: {
+            marginTop: 12,
+            padding: '8px 11px',
+            borderRadius: 8,
+            border: `1px solid ${TOKEN.border}`,
+            background: TOKEN.layer,
+            color: TOKEN.muted,
+            fontSize: 12,
+            lineHeight: 1.6,
+          },
+        },
+          '聊天里也可以直接派任务：输入 ',
+          h('code', { style: { color: TOKEN.brand, fontFamily: 'ui-monospace, Consolas, monospace' } }, '@下级名 任务内容'),
+          ' 发送即可；不需要打开这个面板。',
+        ),
 
         approvals.length
           ? h(Section, { title: '审批', hint: `${approvals.length} 个待处理` },
@@ -616,6 +654,64 @@ window.__ModuleLoader__.load({
                 `监听端口 ${node.listenPort} · 工作区 ${node.workspaceRoot} · 审批超时 ${Math.round((node.approvalTimeoutMs || 0) / 60000)} 分钟`,
               ),
         ),
+
+        pairing ? h('div', {
+          role: 'dialog',
+          'aria-modal': 'true',
+          'aria-label': '输入配对码',
+          onClick: () => {
+            if (!pairBusy) setPairing(null);
+          },
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(0, 0, 0, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          },
+        },
+          h(Card, {
+            onClick: event => event.stopPropagation(),
+            style: { width: 'min(420px, 100%)', padding: 20, boxShadow: '0 24px 70px rgba(0, 0, 0, 0.35)' },
+          },
+            h('div', { style: { fontSize: 16, fontWeight: 650 } }, '配对连接'),
+            h('div', { style: { marginTop: 4, fontSize: 12, color: TOKEN.muted } },
+              `${pairing.name} · ${pairing.host}:${pairing.port}`,
+            ),
+            h('div', { style: { marginTop: 14 } },
+              h(Field, { label: '配对码', hint: '在子级 Mesh 面板顶部可以看到 6 位配对码' },
+                h(Input, {
+                  value: pairCode,
+                  autoFocus: true,
+                  maxLength: 6,
+                  inputMode: 'numeric',
+                  placeholder: '6 位数字',
+                  onChange: event => setPairCode(event.target.value.replace(/\D/g, '').slice(0, 6)),
+                  onKeyDown: event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      submitPair();
+                    }
+                    if (event.key === 'Escape') setPairing(null);
+                  },
+                  style: { letterSpacing: 6, fontSize: 18, textAlign: 'center', padding: '10px 12px' },
+                }),
+              ),
+            ),
+            pairError ? h('div', { style: { marginTop: 10, color: TOKEN.bad, fontSize: 12, whiteSpace: 'pre-wrap' } }, pairError) : null,
+            h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 } },
+              h(Button, { onClick: () => setPairing(null), disabled: pairBusy }, '取消'),
+              h(Button, {
+                kind: 'primary',
+                disabled: pairBusy || pairCode.length !== 6,
+                onClick: submitPair,
+              }, pairBusy ? '连接中…' : '连接'),
+            ),
+          ),
+        ) : null,
       );
     }
 
