@@ -361,14 +361,16 @@ window.__ModuleLoader__.load({
       return h(Card, { style: { marginBottom: 8, padding: 13 } },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
           h(Dot, { online: child.online }),
-          h('strong', { style: { fontSize: 13 } }, child.name || child.id),
+          h('strong', { style: { fontSize: 13 } }, child.alias || child.name || child.id),
           h(Badge, { tone: child.online ? 'good' : 'neutral' }, child.online ? '在线' : '离线'),
           h(Badge, { tone: child.grant === 'none' ? 'warn' : 'neutral' }, `授予：${PERMISSION_LABEL[child.grant] || child.grant}`),
           h('span', { style: { flex: 1 } }),
           h(Button, { disabled: !child.online || child.grant === 'none', onClick: () => setOpen(value => !value) }, '派任务'),
           h(Button, { kind: 'danger', onClick: () => onDisconnect(child) }, '断开'),
         ),
-        h('div', { style: { marginTop: 6, fontSize: 11, color: TOKEN.muted } }, `${child.host}:${child.port}`),
+        h('div', { style: { marginTop: 6, fontSize: 11, color: TOKEN.muted } },
+          `${child.name || child.id} · ${child.host}:${child.port}`,
+        ),
         child.grant === 'none'
           ? h('div', { style: { marginTop: 7, fontSize: 11, color: TOKEN.warn } }, '对方还没有在本机授予任务权限；需要子级在「我的上级」里打开权限开关。')
           : null,
@@ -571,8 +573,8 @@ window.__ModuleLoader__.load({
           },
         },
           '聊天里也可以直接派任务：输入 ',
-          h('code', { style: { color: TOKEN.brand, fontFamily: 'ui-monospace, Consolas, monospace' } }, '@下级名 任务内容'),
-          ' 发送即可；不需要打开这个面板。',
+          h('code', { style: { color: TOKEN.brand, fontFamily: 'ui-monospace, Consolas, monospace' } }, '@'),
+          ' 选择 服务器A/B/C 后输入任务内容发送即可；不需要打开这个面板。',
         ),
 
         approvals.length
@@ -809,7 +811,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots'],
+      inject: ['slots', 'inputTriggers'],
       apply(ctx) {
         store = createStore();
         if (typeof ctx.effect === 'function') {
@@ -820,6 +822,31 @@ window.__ModuleLoader__.load({
         } else {
           store.start();
         }
+        ctx.effect(() => ctx.inputTriggers.registerSource({
+          trigger: '@',
+          name: '服务器',
+          order: -10,
+          showGroupTitle: true,
+          candidates: async (_session, request) => {
+            if (!store.get().data) await store.refresh();
+            const data = store.get().data;
+            const children = data && data.children ? data.children : [];
+            const query = String((request && request.query) || '').trim().toLowerCase();
+            return children
+              .filter(child => {
+                if (!query) return true;
+                const alias = String(child.alias || child.name || '').toLowerCase();
+                const name = String(child.name || '').toLowerCase();
+                return alias.includes(query) || name.includes(query) || String(child.id || '').startsWith(query);
+              })
+              .map(child => ({
+                name: child.alias || child.name,
+                label: child.alias || child.name,
+                description: `${child.online ? '在线' : '离线'} · ${PERMISSION_LABEL[child.grant] || child.grant}`,
+              }));
+          },
+          onPick: ({ candidate }) => ({ text: '@' + candidate.name + ' ' }),
+        }));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
           id: 'mesh',

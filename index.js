@@ -288,6 +288,9 @@ class Mesh {
       this.state.listenEnabled = parsed.listenEnabled !== false
       this.state.listenPort = Number(parsed.listenPort) > 0 ? Number(parsed.listenPort) : DEFAULT_PORT
       this.state.workspaceRoot = parsed.workspaceRoot || join(this.dir, 'workspaces')
+      for (const child of Object.values(this.state.children)) {
+        if (!child.alias) child.alias = this.nextChildAlias(child.id)
+      }
     } catch (error) {
       console.error('[dsh-mesh] state file ignored: ' + messageOf(error))
       this.state = this.defaultState()
@@ -957,6 +960,19 @@ class Mesh {
     return runtime
   }
 
+  nextChildAlias(excludeId) {
+    const used = new Set(Object.values(this.state.children)
+      .filter(child => child.id !== excludeId && child.alias)
+      .map(child => child.alias))
+    for (let index = 0; index < 1000; index += 1) {
+      const alias = index < 26
+        ? '服务器' + String.fromCharCode(65 + index)
+        : '服务器' + String(index + 1)
+      if (!used.has(alias)) return alias
+    }
+    return '服务器' + randomUUID().slice(0, 4)
+  }
+
   async helloChild(child, code) {
     const response = await this.httpJson(child.host, child.port, '/mesh/hello', 'POST', {
       protocol: PROTOCOL,
@@ -972,6 +988,7 @@ class Mesh {
     child.token = response.token
     child.grant = permission(response.grant || 'none')
     child.lastSeen = now()
+    if (!child.alias) child.alias = this.nextChildAlias(child.id)
     if (!child.pairedAt) child.pairedAt = now()
     this.state.children[child.id] = child
     this.save()
@@ -1126,7 +1143,7 @@ class Mesh {
       this.state.approvals[source.id] = {
         ...source,
         peerId: child.id,
-        peerName: child.name,
+        peerName: child.alias || child.name,
         direction: 'out',
         status: 'pending',
         createdAt: source.createdAt || now(),
@@ -1156,7 +1173,7 @@ class Mesh {
         id: String(input.id || 'task-' + randomUUID()),
         direction: 'out',
         peerId: child.id,
-        peerName: child.name,
+        peerName: child.alias || child.name,
         title: input.title || '未命名任务',
         prompt: '',
         permission: permission(input.permission),
@@ -1260,7 +1277,7 @@ class Mesh {
       id: 'task-' + randomUUID(),
       direction: 'out',
       peerId: child.id,
-      peerName: child.name,
+      peerName: child.alias || child.name,
       title: String(input.title || short(prompt, 24)).slice(0, 120),
       prompt,
       permission: permissionValue,
@@ -1535,7 +1552,9 @@ class Mesh {
       }
       const peer = match[1].trim()
       const child = Object.values(this.state.children).find(item =>
-        item.id === peer || item.name.toLowerCase() === peer.toLowerCase())
+        item.id === peer
+        || (item.alias && item.alias.toLowerCase() === peer.toLowerCase())
+        || item.name.toLowerCase() === peer.toLowerCase())
       if (!child) {
         messages.push(message)
         continue
@@ -1558,7 +1577,7 @@ class Mesh {
             permission: permissionValue,
             parentSessionId: payload.agent.id,
           })
-          status = '[DSH Mesh] 已把任务派给「' + child.name + '」：' + firstLine + '\n任务号：' + result.taskId + '。结果会作为一条新消息回到这里。'
+          status = '[DSH Mesh] 已把任务派给「' + (child.alias || child.name) + '」：' + firstLine + '\n任务号：' + result.taskId + '。结果会作为一条新消息回到这里。'
         } catch (error) {
           status = '[DSH Mesh] 派发失败：' + messageOf(error)
         }
@@ -1625,7 +1644,9 @@ class Mesh {
       execute: async (args, exec) => {
         const peer = String(args.peer || '').trim()
         const child = Object.values(this.state.children).find(item =>
-          item.id === peer || item.name.toLowerCase() === peer.toLowerCase())
+          item.id === peer
+          || (item.alias && item.alias.toLowerCase() === peer.toLowerCase())
+          || item.name.toLowerCase() === peer.toLowerCase())
         if (!child) throw new Error('找不到下级「' + peer + '」')
         return this.dispatchTask({
           peerId: child.id,
@@ -1774,6 +1795,7 @@ class Mesh {
     const runtime = this.children.get(child.id)
     return {
       id: child.id,
+      alias: child.alias || child.name,
       name: child.name,
       host: child.host,
       port: child.port,

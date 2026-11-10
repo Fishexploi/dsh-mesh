@@ -13,6 +13,8 @@ host and a parent of another.
   off its Mesh listener entirely, so it opens no inbound port.
 - Child grants permissions to a parent explicitly. A newly paired parent has no
   permission until the child turns one on.
+- Connected children get short local aliases (`服务器A`, `服务器B`, ...); typing
+  `@` in any chat lists them, and picking one inserts `@服务器A ` for dispatch.
 - Child task sessions are ordinary DSH sessions: the child's workspace shows the
   task, its session, and its current permission.
 - Approval requests from a child's agent are forwarded to the parent's Mesh
@@ -61,16 +63,20 @@ The child creates an isolated workspace under its configured root and an
 ordinary DSH session titled `Mesh · <task>`. The child's local user can watch the
 session and stop the task, but cannot answer the parent's approval request.
 
-You can also dispatch from any chat without opening the Mesh panel:
+You can also dispatch from any chat without opening the Mesh panel. Connected
+children get a short local alias: **服务器A, 服务器B, 服务器C...** Type `@` and the
+candidate menu shows a **服务器** group; pick one, then type the task. You can
+also type it manually:
 
 ```text
-@B check the login module and list the problems you find
+@服务器A check the login module and list the problems you find
 ```
 
-The host intercepts the message, sends it to B, and replaces the model-visible
-input with a short dispatch status. The result arrives later as a new message in
-the same session. The default task permission is `工作区内修改`, clamped to the
-child's grant; use the panel when you need an explicit `完全权限` task.
+The host intercepts the message, sends it to that child, and replaces the
+model-visible input with a short dispatch status. The result arrives later as a
+new message in the same session. The default task permission is `工作区内修改`,
+clamped to the child's grant; use the panel when you need an explicit `完全权限`
+task. The real hostname remains visible on the child card in the panel.
 
 ## Permissions and approvals
 

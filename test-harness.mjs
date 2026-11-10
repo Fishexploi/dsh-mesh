@@ -49,6 +49,7 @@ try {
   await a.connectChild({ name: 'B', host: '127.0.0.1', port: b.state.listenPort, code })
   await wait(() => b.state.parent && a.children.get(b.state.nodeId)?.online, 8000, 'pair + stream')
   console.log('pair ok:', b.state.parent.name, '->', a.state.children[b.state.nodeId].name)
+  if (!/^服务器/.test(a.state.children[b.state.nodeId].alias || '')) throw new Error('child alias missing')
 
   b.setGrant('workspace-write')
   await wait(() => a.state.children[b.state.nodeId]?.grant === 'workspace-write', 8000, 'grant')
