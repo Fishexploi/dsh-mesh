@@ -63,7 +63,7 @@ The child creates an isolated workspace under its configured root and an
 ordinary DSH session titled `Mesh · <task>`. The child's local user can watch the
 session and stop the task, but cannot answer the parent's approval request.
 
-You can also dispatch from any chat without opening the Mesh panel. Connected
+You can also delegate from any chat without opening the Mesh panel. Connected
 children get a short local alias: **服务器A, 服务器B, 服务器C...** Type `@` and the
 candidate menu shows a **服务器** group; pick one, then type the task. You can
 also type it manually:
@@ -72,11 +72,13 @@ also type it manually:
 @服务器A check the login module and list the problems you find
 ```
 
-The host intercepts the message, sends it to that child, and replaces the
-model-visible input with a short dispatch status. The result arrives later as a
-new message in the same session. The default task permission is `工作区内修改`,
-clamped to the child's grant; use the panel when you need an explicit `完全权限`
-task. The real hostname remains visible on the child card in the panel.
+The parent agent does not forward those words verbatim. It understands the goal,
+composes a complete task (objective, inputs, constraints, deliverable, report
+format), and calls `mesh_task`. The result goes to the Mesh inbox, not into the
+chat as a user message; the agent reads it with `mesh_inbox` and explains it to
+you. The default task permission is `工作区内修改`, clamped to the child's grant;
+use the panel when you need an explicit `完全权限` task. The real hostname remains
+visible on the child card in the panel.
 
 ## Updates
 
@@ -103,10 +105,14 @@ fails the task. `ask_user_question` forwarding is not implemented yet.
 ## Online state and result delivery
 
 A parent holds a long-lived event stream to each child; a child holds the other
-end for its parent. Both sides show online only while that stream is live. When
-a result cannot be delivered, the child retries it five times, marks it
-“成果发送失败，等待上级上线后调取”, and sends it again after the parent
-reconnects.
+end for its parent. Both sides show online only while that stream is live.
+
+A finished task goes to the parent's **Mesh inbox**. The plugin injects only a
+short "result ready" notice; it never adds the child's raw output as a user
+message. The agent calls `mesh_inbox`, reads the record, and explains it to the
+user; the Mesh task list keeps the raw result and files. When a result cannot be
+delivered, the child retries it five times, marks it “成果发送失败，等待上级上线后调取”,
+and sends it again after the parent reconnects.
 
 ## Security notes
 

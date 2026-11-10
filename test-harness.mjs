@@ -17,13 +17,16 @@ const wait = async (fn, timeout = 8000, label = 'condition') => {
 }
 
 const root = await mkdtemp(join(tmpdir(), 'dsh-mesh-test-'))
+const injected = []
+const tools = []
 const ctx = {
   effect: fn => {
     const dispose = fn()
     return () => dispose?.()
   },
+  get: () => undefined,
   on: () => () => {},
-  tools: { register: () => () => {} },
+  tools: { register: definition => { tools.push(definition); return () => {} } },
   webServer: { register: () => () => {} },
   sessionController: {
     create: async () => { throw new Error('session execution is stubbed in this test') },
@@ -31,7 +34,10 @@ const ctx = {
     rename: async () => ({}),
   },
   permissionPresets: { set: () => {} },
-  agents: { get: () => undefined, list: () => [] },
+  agents: {
+    get: id => id === 'parent-session' ? { inject: message => injected.push(message) } : undefined,
+    list: () => [],
+  },
 }
 
 const a = new Mesh(ctx, {
@@ -72,11 +78,26 @@ try {
     prompt: 'say hi',
     title: 'hello task',
     permission: 'workspace-write',
+    parentSessionId: 'parent-session',
   })
   await wait(() => a.state.tasks[dispatched.taskId]?.status === 'done', 8000, 'result')
   const outTask = a.state.tasks[dispatched.taskId]
   if (!outTask.resultText.includes('stub result')) throw new Error('result text missing')
   await wait(() => b.state.tasks[dispatched.taskId]?.delivery === 'delivered', 8000, 'ack')
+  if (!outTask.unread) throw new Error('task was not marked unread')
+  if (!injected[0] || injected[0].role !== 'user' || injected[0].source.kind !== 'plugin') throw new Error('inbox notice was not injected')
+  const inboxes = tools.filter(tool => tool.name === 'mesh_inbox')
+  if (!inboxes.length) throw new Error('mesh_inbox tool missing')
+  let found = false
+  for (const inbox of inboxes) {
+    const inboxValue = await inbox.execute({ includeRead: true })
+    if (inboxValue.tasks.some(task => task.id === dispatched.taskId)) {
+      found = true
+      break
+    }
+  }
+  if (!found) throw new Error('inbox result missing')
+  if (outTask.unread) throw new Error('inbox did not mark read')
   console.log('task ok:', dispatched.taskId, '->', outTask.resultText)
 
   const approvalTask = {

@@ -258,6 +258,7 @@ window.__ModuleLoader__.load({
           h('strong', { style: { fontSize: 13, fontWeight: 600 } }, task.title || '未命名任务'),
           h(Badge, { tone }, STATUS_LABEL[task.status] || task.status),
           task.approvalPending ? h(Badge, { tone: 'warn' }, '等待审批') : null,
+          task.unread ? h(Badge, { tone: 'good' }, '新结果') : null,
           task.delivery === 'failed' ? h(Badge, { tone: 'bad' }, '成果待调取') : null,
           h('span', { style: { flex: 1 } }),
           h('span', { style: { fontSize: 11, color: TOKEN.muted } }, `${task.direction === 'in' ? '来自' : '发给'} ${task.peerName || '—'}`),
@@ -638,7 +639,7 @@ window.__ModuleLoader__.load({
         },
           '聊天里也可以直接派任务：输入 ',
           h('code', { style: { color: TOKEN.brand, fontFamily: 'ui-monospace, Consolas, monospace' } }, '@'),
-          ' 选择 服务器A/B/C 后输入任务内容发送即可；不需要打开这个面板。',
+          ' 选择 服务器A/B/C 后输入任务内容发送；A 的 agent 会理解需求后派发，结果在 Mesh 里，不会以你的消息形式插进聊天。',
         ),
 
         approvals.length
@@ -836,7 +837,9 @@ window.__ModuleLoader__.load({
 
     function MeshIcon({ size = 20, active = false }) {
       const snapshot = useSnapshot(store);
-      const pending = snapshot.data?.approvals?.filter(item => item.actionable).length || 0;
+      const pendingApprovals = snapshot.data?.approvals?.filter(item => item.actionable).length || 0;
+      const unreadTasks = snapshot.data?.tasks?.filter(item => item.unread).length || 0;
+      const pending = pendingApprovals + unreadTasks;
       const color = active ? TOKEN.brand : 'currentColor';
       return h('span', { style: { position: 'relative', display: 'inline-flex', width: size, height: size, alignItems: 'center', justifyContent: 'center' } },
         h('svg', {
