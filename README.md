@@ -9,7 +9,7 @@
 一台 DSH 当“上级”，把任务派给其他 DSH；子级在自己的工作区里干活，完成后把结果和文件交回来；遇到敏感操作，子级把审批请求送到上级，由上级点“允许”或“拒绝”。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.1-2f81f7?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.2-2f81f7?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" />
   <img alt="dsh" src="https://img.shields.io/badge/DSH-%5E0.2.2--rc.1-8957e5?style=flat-square" />
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b949e?style=flat-square" />
@@ -299,7 +299,7 @@ B（上级）  ──── 拨号 / 任务 / 审批 ────▶  C（下级
 | 单上级 | 一个节点只能有一个上级，可以有多个下级 |
 | 无 TLS | 依赖可信局域网；后续再加 |
 | `ask_user_question` 未转发 | 目前只转发 approval |
-| 重启中断任务 | 节点重启时正在跑的任务标记失败；成果补投已支持 |
+| 重启中断任务 | 节点重启或插件重载时正在跑的任务标记失败，并把失败结果补投给上级，不会一直显示“进行中” |
 | 续聊依赖会话 | 续聊复用子级那条任务会话；会话被删掉就只能新派任务 |
 | 续聊只带当轮文件 | 每轮回传本轮新生成的文件，前几轮的文件不会重复发送 |
 | 文件上限 | 16 个文件 / 单文件 1.5 MB / 总计 8 MB |

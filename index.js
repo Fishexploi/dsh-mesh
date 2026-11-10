@@ -505,9 +505,15 @@ class Mesh {
     for (const task of Object.values(this.state.tasks)) {
       if (task.status === 'queued' || task.status === 'running' || task.delivery === 'sending') {
         task.status = 'failed'
-        task.error = task.error || '节点重启，任务中断'
+        task.error = task.error || '节点重启或插件重载，任务中断'
         task.endedAt = task.endedAt || now()
-        if (task.direction === 'in') task.delivery = 'pending'
+        if (task.direction === 'in') {
+          // An interrupted worker task still owes the parent an answer. Mark it
+          // finished so the pending-result path delivers the failure, otherwise
+          // the parent's copy looks like it is still running forever.
+          task.finished = true
+          task.delivery = 'pending'
+        }
       }
     }
   }
