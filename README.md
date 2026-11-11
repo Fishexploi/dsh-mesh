@@ -65,13 +65,13 @@
 
 ### 1. 在每台机器安装插件
 
-从 npm 安装（推荐，装完会随更新走）：
+用 Release 里的打包文件（当前最省事，已发布）：
 
 ```powershell
-dsh plugin --profile <profile> add @fishboy/dsh-mesh
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.2/fishboy-dsh-mesh-0.3.2.tgz
 ```
 
-或者克隆源码本地安装：
+或者从源码本地安装：
 
 ```powershell
 git clone https://github.com/Fishexploi/dsh-mesh.git
@@ -79,6 +79,9 @@ git clone https://github.com/Fishexploi/dsh-mesh.git
 
 打开 DSH：**设置 → 插件 → 从本地安装**，选择克隆下来的 `dsh-mesh` 目录。  
 安装后重载/重启一次，左侧栏会出现 **Mesh** 图标。
+
+> npm 包 `@fishboy/dsh-mesh` 还在上架流程中（npm 上 `dsh-mesh` 已被别的项目占用，所以用了 scope）。发布后可以直接
+> `dsh plugin --profile <profile> add @fishboy/dsh-mesh`。
 
 > 想把当前机器的插件一并同步到另一台机器，见
 > [sync/README.md](sync/README.md)：运行 `sync\install.cmd` 会合并

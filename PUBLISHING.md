@@ -2,6 +2,24 @@
 
 本仓库发布的包名是 **`@fishboy/dsh-mesh`**（npm 上 `dsh-mesh` 已被一个无关项目占用）。
 
+## 0. 当前可用的发布通道：GitHub Release 附件
+
+npm 上架还在走流程时，市场收录和安装都走这条，已经可用：
+
+```
+https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.2/fishboy-dsh-mesh-0.3.2.tgz
+```
+
+安装命令：
+
+```powershell
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.2/fishboy-dsh-mesh-0.3.2.tgz
+```
+
+发版流程：`npm pack --pack-destination <目录>` → GitHub Releases → 选已有的 tag → 传 tgz →
+Publish（Release label 用 `None`，别勾 Pre-release，否则 `/releases/latest` 和索引拿不到）。
+上传后确认 asset 名保持 `fishboy-dsh-mesh-<version>.tgz`，sha256 与本地 `Get-FileHash` 一致。
+
 ## 1. 发布到 npm
 
 ### 如果 npm 网页注册被风控挡住（403）

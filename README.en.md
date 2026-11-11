@@ -32,10 +32,10 @@ host and a parent of another.
 
 ## Install
 
-From npm (recommended: updates then follow the package):
+From the release package (simplest, already published):
 
 ```powershell
-dsh plugin --profile <profile> add @fishboy/dsh-mesh
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.2/fishboy-dsh-mesh-0.3.2.tgz
 ```
 
 Or clone the repository and install the folder:
@@ -45,7 +45,9 @@ git clone https://github.com/Fishexploi/dsh-mesh.git
 ```
 
 Then choose the cloned `dsh-mesh` folder in **Settings → Plugins → Install from
-file**.
+file**. The npm package `@fishboy/dsh-mesh` is still going through the publishing
+process; once it is up, `dsh plugin --profile <profile> add @fishboy/dsh-mesh`
+works too.
 
 Restart DSH (or reload the profile) after the first install. The **Mesh** icon
 appears in the left rail.
