@@ -3,4 +3,4 @@
 # it must match the published package name.
 - insert:
     - id: dsh-mesh
-      name: "@fishexploi/dsh-mesh"
+      name: "@fishboy/dsh-mesh"

@@ -318,12 +318,36 @@ try {
     toolName: 'pwsh',
     reason: 'run a command',
   })
+  // The parent only knows about the task if it dispatched it; give it one so the
+  // approval can be matched and the notice injected.
+  a.state.tasks[approvalTask.id] = {
+    id: approvalTask.id,
+    direction: 'out',
+    peerId: b.state.nodeId,
+    peerName: b.state.children ? 'stub child' : 'stub child',
+    title: 'approval test',
+    prompt: '',
+    permission: 'workspace-write',
+    status: 'running',
+    createdAt: Date.now(),
+    unread: false,
+    artifacts: [],
+    parentSessionId: 'parent-session',
+  }
+  const noticesBeforeApproval = injected.length
   await wait(() => Object.values(a.state.approvals).some(item => item.status === 'pending'), 8000, 'approval frame')
   const approval = Object.values(a.state.approvals).find(item => item.status === 'pending')
-  await a.approve({ approvalId: approval.id, decision: 'allowed-once' })
+  await wait(() => a.state.tasks[approvalTask.id].approvalPending, 8000, 'approval flag')
+  await wait(() => injected.length > noticesBeforeApproval, 8000, 'approval notice')
+  const approvalNotice = textOf(injected[injected.length - 1])
+  if (!approvalNotice.includes('审批')) throw new Error('approval notice does not mention the approval')
+  const decided = await toolValue('mesh_approve', { taskId: approvalTask.id, decision: 'allowed-once' },
+    value => value && value.approvalId === approval.id)
+  if (!decided) throw new Error('mesh_approve did not answer the pending approval')
   const decision = await pending
   if (decision !== 'allowed-once') throw new Error(`unexpected approval decision ${decision}`)
-  console.log('approval ok:', approval.id, decision)
+  await wait(() => a.state.tasks[approvalTask.id].approvalPending === false, 8000, 'approval cleared')
+  console.log('approval ok:', approval.id, decision, '(notice + mesh_approve)')
 
   console.log('ALL OK')
 } finally {

@@ -15,7 +15,7 @@
 
   Usage:
     powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -Probe
-    powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -UserName fishexploi -Email you@example.com
+    powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -UserName fishboy -Email you@example.com
 #>
 [CmdletBinding()]
 param(

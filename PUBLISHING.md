@@ -1,6 +1,6 @@
 # 发布与上架
 
-本仓库发布的包名是 **`@fishexploi/dsh-mesh`**（npm 上 `dsh-mesh` 已被一个无关项目占用）。
+本仓库发布的包名是 **`@fishboy/dsh-mesh`**（npm 上 `dsh-mesh` 已被一个无关项目占用）。
 
 ## 1. 发布到 npm
 
@@ -14,10 +14,10 @@
 powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -Probe
 
 # 真正注册：会交互式问用户名/邮箱/密码（密码不回显），成功后把 token 写进 ~/.npmrc
-powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -UserName fishexploi -Email you@example.com
+powershell -ExecutionPolicy Bypass -File tools\npm-signup.ps1 -UserName fishboy -Email you@example.com
 ```
 
-用户名同时就是 scope（`@fishexploi/...`）。注册完去邮箱点 npm 的验证链接，
+用户名同时就是 scope（`@fishboy/...`）。注册完去邮箱点 npm 的验证链接，
 未验证邮箱的账号发布会被拒。
 
 登录（网页登录同样可能被挡时用终端模式）：
@@ -32,7 +32,7 @@ npm login --auth-type=legacy --registry=https://registry.npmjs.org
 # 首次：登录 npmjs（本机 .npmrc 默认指向 npmmirror，这里必须显式指定官方源）
 npm login --registry=https://registry.npmjs.org
 
-# 首次：在 npm 上创建 scope（网页操作）https://www.npmjs.com/org/create -> @fishexploi
+# 首次：在 npm 上创建 scope（网页操作）https://www.npmjs.com/org/create -> @fishboy
 
 # 每次发布前自检打包含哪些文件
 npm pack --dry-run
@@ -44,8 +44,8 @@ npm publish
 发布后验证：
 
 ```powershell
-npm view @fishexploi/dsh-mesh version --registry=https://registry.npmjs.org
-dsh plugin --profile <profile> add @fishexploi/dsh-mesh
+npm view @fishboy/dsh-mesh version --registry=https://registry.npmjs.org
+dsh plugin --profile <profile> add @fishboy/dsh-mesh
 ```
 
 ## 2. GitHub Release
@@ -78,7 +78,7 @@ dsh-market 和 DSH 0.2.1+ 的 **Plugins → Discover** 都读这份精选列表
 ### 3.2 dsh.so
 
 打开 <https://www.dsh.so/zh/submit/>，粘贴仓库地址 `github.com/Fishexploi/dsh-mesh`
-（或 npm 包名 `@fishexploi/dsh-mesh`）。它会自动拉源码、跑格式校验与 vet 安全扫描，
+（或 npm 包名 `@fishboy/dsh-mesh`）。它会自动拉源码、跑格式校验与 vet 安全扫描，
 通过后生成条目 Issue 交给维护者合并。收录要求：`dsh` 字段 ✅、README 有安装说明 ✅、
 SPDX 许可证 ✅、插件 id 符合 `^[a-z0-9]+(-[a-z0-9]+)*$` ✅、有可扫描源码 ✅。
 
@@ -100,12 +100,12 @@ dsh.so 与部分目录站会按 topic 自动索引。
 ## 5. 旧机器迁移
 
 0.2.x 及更早的安装用的是不带 scope 的 `dsh-mesh`。包名变了以后，**先迁移再更新**，
-否则更新会把新文件写进旧目录，而 patch 行里的 specifier 已经变成 `@fishexploi/dsh-mesh`，
+否则更新会把新文件写进旧目录，而 patch 行里的 specifier 已经变成 `@fishboy/dsh-mesh`，
 插件会在下次启动时加载失败。
 
 - 本地目录链接安装（`link:` / `file:`）：在目标机器跑 `sync\migrate-scoped.ps1`。
 - npm 版本安装：`dsh plugin --profile <profile> remove dsh-mesh`，再
-  `dsh plugin --profile <profile> add @fishexploi/dsh-mesh`。
+  `dsh plugin --profile <profile> add @fishboy/dsh-mesh`。
 
 ## 6. 万一 npm 一直注册不了
 
@@ -113,7 +113,7 @@ dsh.so 与部分目录站会按 topic 自动索引。
 压缩包链接安装。退路是把 `npm pack` 出来的 tarball 挂到 GitHub Release，安装命令写成
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.0/fishexploi-dsh-mesh-0.3.0.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.1/fishboy-dsh-mesh-0.3.1.tgz
 ```
 
 代价：没有 npm 下载统计，更新走 GitHub 而不是 npm。这是退路，不是首选。

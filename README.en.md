@@ -35,7 +35,7 @@ host and a parent of another.
 From npm (recommended: updates then follow the package):
 
 ```powershell
-dsh plugin --profile <profile> add @fishexploi/dsh-mesh
+dsh plugin --profile <profile> add @fishboy/dsh-mesh
 ```
 
 Or clone the repository and install the folder:
@@ -51,7 +51,7 @@ Restart DSH (or reload the profile) after the first install. The **Mesh** icon
 appears in the left rail.
 
 To copy this machine's plugin set to another machine, see
-[sync/README.md](sync/README.md): `sync\install.cmd` merges `@fishexploi/dsh-mesh`,
+[sync/README.md](sync/README.md): `sync\install.cmd` merges `@fishboy/dsh-mesh`,
 `dshmarket`, `dsh-mnemon`, `dsh-plugin-startup-animation`, and `dsh-pet` into the
 target profile and runs `pnpm install`.
 
@@ -114,6 +114,13 @@ When the child's agent asks for approval, the request appears in the parent's
 **审批** section with the tool and reason. The parent can allow once or reject.
 Approval timeout is configurable in **设置** (default 10 minutes); a timeout
 fails the task. `ask_user_question` forwarding is not implemented yet.
+
+Since 0.3.2 an approval no longer waits silently: the parent session is notified
+the moment it arrives, the forwarding also covers sandbox escalations ("allow
+this operation to use workspace-write"), which are raised on the host context
+and used to be left on the child's own screen, and a task that runs five minutes
+without an approval flag or a result raises one "may be stuck" reminder.
+`mesh_approve { decision }` answers the pending request from the conversation.
 
 ## Online state and result delivery
 

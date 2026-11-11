@@ -1,6 +1,6 @@
 {
-  "name": "@fishexploi/dsh-mesh",
-  "version": "0.3.0",
+  "name": "@fishboy/dsh-mesh",
+  "version": "0.3.2",
   "private": false,
   "description": "Connect DSH hosts on a LAN and delegate tasks between parent and child nodes.",
   "type": "module",

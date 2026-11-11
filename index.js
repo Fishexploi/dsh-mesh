@@ -51,6 +51,7 @@ const RESULT_DISK_LIMIT = 2 * 1024 * 1024
 const RESULT_PREVIEW_DEFAULT = 1200
 const RESULT_TOOL_LIMIT = 16 * 1024
 const FOLLOWUP_LIMIT = 4000
+const STALL_NOTICE_MS = 5 * 60 * 1000
 const REPORT_FILE = 'REPORT.md'
 const FOLLOWUP_SINCE_PROTOCOL = '0.2.0'
 
@@ -309,6 +310,9 @@ class Mesh {
     this.pendingApprovals = new Map()
     this.ackWaiters = new Map()
     this.approvalHooked = new WeakSet()
+    this.approvalSeen = new WeakSet()
+    this.hostApprovalHooked = false
+    this.stalledNudged = new Set()
     this.running = 0
     this.queue = []
     this.workerSessions = new Set()
@@ -927,11 +931,9 @@ class Mesh {
   prepareWorker(task, agent) {
     if (!this.approvalHooked.has(agent)) {
       this.approvalHooked.add(agent)
-      agent.ctx.on('approval/request', async (req, next) => {
-        if (task.finished) return next()
-        return this.requestApproval(task, req)
-      })
+      agent.ctx.on('approval/request', (req, next) => this.handleWorkerApproval(req, next))
     }
+    this.hookHostApprovals()
     // A task received from a parent must not be re-delegated through this
     // node's own children: the parent can only command the nodes it paired
     // with directly. The worker also does not need to see the mesh at all.
@@ -941,6 +943,60 @@ class Mesh {
       console.log('[dsh-mesh] worker tool restriction skipped: ' + messageOf(error))
     }
     this.applyPermission(agent, task.permission)
+  }
+
+  /**
+   * Route one approval request from a worker agent to the parent.
+   *
+   * Two hooks can see the same request: the agent context (ordinary tool
+   * approvals) and the host context (a sandbox asking to widen the permission
+   * preset). Whichever fires first owns it; the other must leave it alone so
+   * the same request is never decided twice.
+   */
+  handleWorkerApproval(req, next) {
+    const pass = typeof next === 'function' ? next : () => undefined
+    if (!req) return pass()
+    if (this.approvalSeen.has(req)) return undefined
+    const task = this.taskForApproval(req)
+    if (!task || task.finished) return pass()
+    this.approvalSeen.add(req)
+    return this.requestApproval(task, req)
+  }
+
+  /**
+   * Which local task raised this request? Only worker sessions belong to the
+   * parent; anything else keeps DSH's own behaviour.
+   */
+  taskForApproval(req) {
+    const ids = [
+      req.sessionId,
+      req.session && req.session.id,
+      req.session && req.session.header && req.session.header.id,
+      req.agent && req.agent.session && req.agent.session.id,
+    ].filter(Boolean)
+    if (!ids.length) return null
+    for (const task of Object.values(this.state.tasks)) {
+      if (task.direction !== 'in' || task.finished || !task.sessionId) continue
+      if (ids.includes(task.sessionId)) return task
+    }
+    return null
+  }
+
+  /**
+   * A sandbox escalation ("allow this operation to use workspace-write") is
+   * raised on the host context rather than the agent one, which is why the
+   * per-agent hook alone missed it and the prompt stayed on the child's screen
+   * where the parent could never see it.
+   */
+  hookHostApprovals() {
+    if (this.hostApprovalHooked || typeof this.ctx.on !== 'function') return
+    this.hostApprovalHooked = true
+    try {
+      this.ctx.on('approval/request', (req, next) => this.handleWorkerApproval(req, next))
+      console.log('[dsh-mesh] host approval hook installed')
+    } catch (error) {
+      console.log('[dsh-mesh] host approval hook skipped: ' + messageOf(error))
+    }
   }
 
   /**
@@ -1451,7 +1507,7 @@ class Mesh {
     if (frame.type === 'approval_request') {
       const source = frame.approval || {}
       if (!source.id) return
-      this.state.approvals[source.id] = {
+      const record = {
         ...source,
         peerId: child.id,
         peerName: child.alias || child.name,
@@ -1459,12 +1515,26 @@ class Mesh {
         status: 'pending',
         createdAt: source.createdAt || now(),
       }
+      this.state.approvals[source.id] = record
       this.save()
+      const task = this.state.tasks[source.taskId]
+      if (task) {
+        task.approvalPending = true
+        this.save()
+      }
+      this.notifyParentApproval(task, record).catch(error => {
+        console.error('[dsh-mesh] approval notice failed: ' + messageOf(error))
+      })
       return
     }
     if (frame.type === 'approval_closed') {
       const approval = this.state.approvals[frame.approvalId]
       if (approval) approval.status = frame.decision === 'allowed-once' ? 'allowed' : 'rejected'
+      const task = approval && this.state.tasks[approval.taskId]
+      if (task) {
+        task.approvalPending = false
+        task.stalledNotified = false
+      }
       this.save()
     }
   }
@@ -1511,6 +1581,8 @@ class Mesh {
     task.resultFile = landed.file
     task.resultText = previewText(full, this.previewChars())
     task.resultTruncated = task.resultText.length < full.length
+    task.approvalPending = false
+    task.stalledNotified = false
     task.artifacts = await this.saveArtifacts(task, frame.artifacts || [])
     this.save()
     await this.rpcChild(child, 'ack', { taskId: task.id }).catch(() => {})
@@ -1560,6 +1632,61 @@ class Mesh {
       agent.inject(userMessage(text, { kind: 'dsh-mesh', taskId: task.id }))
     } catch (error) {
       console.log('[dsh-mesh] inbox notice skipped: ' + messageOf(error))
+    }
+  }
+
+  /**
+   * Tell the parent session that a child is blocked on an approval. Without
+   * this the request only exists in the Mesh panel, which is exactly how a
+   * task sat waiting until someone happened to look.
+   */
+  async notifyParentApproval(task, approval) {
+    if (!task || !task.parentSessionId) return
+    const agent = this.ctx.agents.get(task.parentSessionId)
+    if (!agent || typeof agent.inject !== 'function') return
+    const minutes = Math.max(1, Math.round((Number(this.state.settings.approvalTimeoutMs) || 600000) / 60000))
+    const text = '[DSH Mesh] 子级「' + (task.peerName || '') + '」的任务「' + task.title + '」在等审批：'
+      + (approval.toolName || 'tool') + '。'
+      + '去 Mesh 面板的「审批」点允许一次/拒绝，或直接告诉我放不放行（mesh_approve）；'
+      + minutes + ' 分钟内不处理任务会失败。'
+    try {
+      agent.inject(userMessage(text, { kind: 'dsh-mesh', taskId: task.id, approvalId: approval.id }))
+    } catch (error) {
+      console.log('[dsh-mesh] approval notice skipped: ' + messageOf(error))
+    }
+  }
+
+  /**
+   * A task that has been running for a while without an approval flag and
+   * without a result may be stuck on something the parent never saw (a local
+   * prompt, a busy child). Say so once instead of waiting in silence.
+   */
+  checkStalledTasks() {
+    for (const task of Object.values(this.state.tasks)) {
+      if (task.direction !== 'out' || task.status !== 'running') continue
+      if (task.approvalPending || task.stalledNotified) continue
+      const since = task.startedAt || task.createdAt || 0
+      if (!since || now() - since < STALL_NOTICE_MS) continue
+      task.stalledNotified = true
+      this.save()
+      this.notifyStalled(task).catch(error => {
+        console.error('[dsh-mesh] stall notice failed: ' + messageOf(error))
+      })
+    }
+  }
+
+  async notifyStalled(task) {
+    if (!task.parentSessionId) return
+    const agent = this.ctx.agents.get(task.parentSessionId)
+    if (!agent || typeof agent.inject !== 'function') return
+    const minutes = Math.round(STALL_NOTICE_MS / 60000)
+    const text = '[DSH Mesh] 任务「' + task.title + '」在子级「' + (task.peerName || '') + '」跑了 '
+      + minutes + ' 分钟还没回音，可能卡在那台机器本地的审批弹窗，或者子级正忙。'
+      + '去那台机器的 DSH 界面看一眼，或在 Mesh 面板点取消重派；不要一直等。'
+    try {
+      agent.inject(userMessage(text, { kind: 'dsh-mesh', taskId: task.id }))
+    } catch (error) {
+      console.log('[dsh-mesh] stall notice skipped: ' + messageOf(error))
     }
   }
 
@@ -1868,6 +1995,7 @@ class Mesh {
       for (const entry of [...this.discovered.entries()]) {
         if (entry[1].seenAt < cutoff) this.discovered.delete(entry[0])
       }
+      this.checkStalledTasks()
     }, 5000)
     if (this.cleanupTimer.unref) this.cleanupTimer.unref()
     this.startBroadcast()
@@ -2092,6 +2220,44 @@ class Mesh {
         taskId: String(args.taskId || ''),
         message: String(args.message || ''),
       }),
+    }))
+
+    this.ctx.effect(() => this.ctx.tools.register({
+      name: 'mesh_approve',
+      description: 'Decide an approval that a DSH Mesh child is waiting on. The child stays blocked until someone answers and the task fails when the approval times out, so pass the user\'s decision promptly. Only call it after the user has actually decided.',
+      parameters: {
+        type: 'object',
+        properties: {
+          approvalId: { type: 'string', description: 'Approval id from the DSH Mesh notice.' },
+          taskId: { type: 'string', description: 'Task id; picks that task\'s newest pending approval.' },
+          decision: {
+            type: 'string',
+            enum: ['allowed-once', 'rejected'],
+            description: 'allowed-once lets this one operation through; rejected fails the task.',
+          },
+        },
+        required: ['decision'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
+      execute: async args => {
+        const decision = args.decision === 'allowed-once' ? 'allowed-once' : 'rejected'
+        let approvalId = String(args.approvalId || '').trim()
+        if (!approvalId) {
+          const taskId = String(args.taskId || '').trim()
+          const pending = Object.values(this.state.approvals)
+            .filter(item => item.status === 'pending' && item.direction === 'out'
+              && (!taskId || item.taskId === taskId))
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+          if (!pending.length) throw new Error('没有等待中的审批')
+          approvalId = pending[0].id
+        }
+        await this.approve({ approvalId, decision })
+        return { approvalId, decision, taskId: (this.state.approvals[approvalId] || {}).taskId || '' }
+      },
     }))
 
     this.ctx.effect(() => this.ctx.tools.register({

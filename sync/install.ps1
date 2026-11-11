@@ -35,7 +35,7 @@ if (-not $manifest.dsh.profile.bundles) {
 
 $meshSpec = 'file:' + $repoRoot.Replace('\', '/')
 $dependencies = [ordered]@{
-  '@fishexploi/dsh-mesh' = $meshSpec
+  '@fishboy/dsh-mesh' = $meshSpec
   'dsh-mnemon' = '0.5.42'
   'dsh-pet' = '0.4.7'
   'dsh-plugin-startup-animation' = '1.31.1'
@@ -51,7 +51,7 @@ foreach ($name in $dependencies.Keys) {
 }
 
 $bundles = @($manifest.dsh.profile.bundles)
-foreach ($name in @('dshmarket', 'dsh-mnemon', 'dsh-plugin-startup-animation', '@fishexploi/dsh-mesh')) {
+foreach ($name in @('dshmarket', 'dsh-mnemon', 'dsh-plugin-startup-animation', '@fishboy/dsh-mesh')) {
   if ($bundles -notcontains $name) { $bundles += $name }
 }
 $manifest.dsh.profile.bundles = $bundles

@@ -1,6 +1,6 @@
 <#
   Move one DSH profile from the unscoped "dsh-mesh" install to the published
-  scoped package "@fishexploi/dsh-mesh".
+  scoped package "@fishboy/dsh-mesh".
 
   Why this is needed: the package name changed, and cordis.patch.yml now asks
   for the module by its scoped specifier. An old install keeps the files under
@@ -22,7 +22,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $OldName = 'dsh-mesh'
-$NewName = '@fishexploi/dsh-mesh'
+$NewName = '@fishboy/dsh-mesh'
 
 $manifestPath = Join-Path $ProfileDir 'package.json'
 if (-not (Test-Path -LiteralPath $manifestPath)) {
@@ -61,7 +61,7 @@ if (-not [System.IO.Path]::IsPathRooted($target)) {
 $target = (Resolve-Path -LiteralPath $target).Path
 Write-Host "[info] package source: $target"
 
-$scopeDir = Join-Path $ProfileDir 'node_modules\@fishexploi'
+$scopeDir = Join-Path $ProfileDir 'node_modules\@fishboy'
 $newPath = Join-Path $scopeDir 'dsh-mesh'
 $oldPath = Join-Path $ProfileDir "node_modules\$OldName"
 

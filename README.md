@@ -9,7 +9,7 @@
 一台 DSH 当“上级”，把任务派给其他 DSH；子级在自己的工作区里干活，完成后把结果和文件交回来；遇到敏感操作，子级把审批请求送到上级，由上级点“允许”或“拒绝”。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-0.3.0-2f81f7?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.3.2-2f81f7?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" />
   <img alt="dsh" src="https://img.shields.io/badge/DSH-%5E0.2.2--rc.1-8957e5?style=flat-square" />
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b949e?style=flat-square" />
@@ -68,7 +68,7 @@
 从 npm 安装（推荐，装完会随更新走）：
 
 ```powershell
-dsh plugin --profile <profile> add @fishexploi/dsh-mesh
+dsh plugin --profile <profile> add @fishboy/dsh-mesh
 ```
 
 或者克隆源码本地安装：
@@ -82,7 +82,7 @@ git clone https://github.com/Fishexploi/dsh-mesh.git
 
 > 想把当前机器的插件一并同步到另一台机器，见
 > [sync/README.md](sync/README.md)：运行 `sync\install.cmd` 会合并
-> `@fishexploi/dsh-mesh`、`dshmarket`、`dsh-mnemon`、`dsh-plugin-startup-animation` 和
+> `@fishboy/dsh-mesh`、`dshmarket`、`dsh-mnemon`、`dsh-plugin-startup-animation` 和
 > `dsh-pet` 的依赖并执行 `pnpm install`。
 
 ### 2. 子级打开配对码
@@ -189,6 +189,13 @@ Mesh 面板顶部会显示当前版本号：
 4. 决定回传，子级继续或终止。
 
 如果上级不在线，任务会等到超时，然后失败。
+
+**审批不会再“悄悄卡住”**（0.3.2 起）：
+
+- 子级发出审批请求时，父级会话会**立刻收到一条提示**（哪台服务器、哪个任务、什么工具），不用自己去翻面板；
+- 转发覆盖了**两类**审批：普通工具审批，以及“沙箱拒绝后申请升级权限档位”那种（它走的是宿主上下文，以前会落在子级本地没人看见）；
+- 父级可以直接让我处理：`mesh_approve { decision: allowed-once | rejected }`，也可以照旧在面板点；
+- 任务跑了 **5 分钟既没审批标记也没结果**，会补一条“可能卡在子级本地审批或子级繁忙”的提醒，不会让你一直等到超时才后知后觉。
 
 ### 结果
 
