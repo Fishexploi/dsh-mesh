@@ -116,8 +116,11 @@ $json = $manifest | ConvertTo-Json -Depth 20
 [System.IO.File]::WriteAllText($manifestPath, $json + "`n", (New-Object System.Text.UTF8Encoding($false)))
 Write-Host '[ok] manifest cleaned'
 
+$purgedRoot = Join-Path $ProfileDir 'purged'
 foreach ($copy in $copies) {
-  $aside = $copy + '.purged-' + $stamp
+  if (-not (Test-Path -LiteralPath $purgedRoot)) { New-Item -ItemType Directory -Path $purgedRoot | Out-Null }
+  $relative = $copy.Substring($nm.Length).TrimStart('\', '/') -replace '[\\/]', '__'
+  $aside = Join-Path $purgedRoot ($relative + '-' + $stamp)
   try {
     Move-Item -LiteralPath $copy -Destination $aside
     Write-Host "[ok] moved $copy -> $aside"
