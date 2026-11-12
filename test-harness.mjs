@@ -178,7 +178,33 @@ try {
   if (!pingLegacy || typeof pingLegacy.time !== 'number') throw new Error('query token fallback failed')
   console.log('token transport: header for 0.4.0+, query fallback for older')
 
-  // ── rate limits ──
+  // ── permission pre-flight: refuse before anything is sent ──
+  const tasksBefore = Object.keys(a.state.tasks).length
+  a.state.children[b.state.nodeId].grant = 'none'
+  let noGrant = ''
+  try {
+    await a.dispatchTask({ peerId: b.state.nodeId, prompt: 'do something', title: 'no grant', parentSessionId: 'parent-session' })
+  } catch (error) {
+    noGrant = String(error.message)
+  }
+  if (!/未授权/.test(noGrant)) throw new Error('dispatch without a grant was not refused clearly: ' + noGrant)
+  if (Object.keys(a.state.tasks).length !== tasksBefore) throw new Error('a refused dispatch still created a task record')
+
+  a.state.children[b.state.nodeId].grant = 'read-only'
+  let tooHigh = ''
+  try {
+    await a.dispatchTask({ peerId: b.state.nodeId, prompt: 'write a file', title: 'needs write', permission: 'workspace-write', parentSessionId: 'parent-session' })
+  } catch (error) {
+    tooHigh = String(error.message)
+  }
+  if (!/超过/.test(tooHigh) || !/read-only/.test(tooHigh)) {
+    throw new Error('permission above the grant was not refused clearly: ' + tooHigh)
+  }
+  if (Object.keys(a.state.tasks).length !== tasksBefore) throw new Error('an over-permission dispatch still created a task record')
+  a.state.children[b.state.nodeId].grant = 'workspace-write'
+  console.log('permission pre-flight: no grant and too-high permission refused before dispatch')
+
+
   const limitRoot = join(root, 'limit')
   mkdirSync(limitRoot, { recursive: true })
   const limit = new Mesh(ctx, { stateDir: limitRoot, name: 'L', port: 46712, listenEnabled: true })

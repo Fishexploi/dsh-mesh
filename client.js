@@ -1099,7 +1099,9 @@ window.__ModuleLoader__.load({
               .map(child => ({
                 name: child.alias || child.name,
                 label: child.alias || child.name,
-                description: `${child.online ? '在线' : '离线'} · ${PERMISSION_LABEL[child.grant] || child.grant}`,
+                description: `${child.online ? '在线' : '离线'} · ${child.grant === 'none'
+                  ? '未授权，派任务会被拒绝（需在子级「我的上级」里开通）'
+                  : (PERMISSION_LABEL[child.grant] || child.grant)}`,
               }));
           },
           onPick: ({ candidate }) => ({ text: '@' + candidate.name + ' ' }),

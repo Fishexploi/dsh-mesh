@@ -112,6 +112,16 @@ The child is the authority. Its local grant is the ceiling; the parent's choice
 for one task is clamped to that grant. A child should grant `完全权限` only to a
 parent it trusts with its local account.
 
+**No permission, no dispatch, no wasted tokens.** The DSH Mesh prompt section
+always lists each child with its current grant, so the parent agent checks it
+before writing a task:
+
+- grant `none` → the dispatch is refused locally, nothing is sent, and the user
+  is told to open the permission in that child's Mesh panel;
+- a task that needs more than the grant (writing files on a read-only child, for
+  example) is stopped during analysis, with the level it needs and why, instead
+  of being written out and failing afterwards.
+
 When the child's agent asks for approval, the request appears in the parent's
 **审批** section with the tool and reason. The parent can allow once or reject.
 Approval timeout is configurable in **设置** (default 10 minutes); a timeout
