@@ -7,13 +7,13 @@
 npm 上架还在走流程时，市场收录和安装都走这条，已经可用：
 
 ```
-https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.3/fishboy-dsh-mesh-0.4.3.tgz
+https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.4/fishboy-dsh-mesh-0.4.4.tgz
 ```
 
 安装命令：
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.3/fishboy-dsh-mesh-0.4.3.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.4/fishboy-dsh-mesh-0.4.4.tgz
 ```
 
 发版流程：`npm pack --pack-destination <目录>` → GitHub Releases → 选已有的 tag → 传 tgz →
@@ -132,7 +132,7 @@ dsh.so 与部分目录站会按 topic 自动索引。
 安装命令写成
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.3/fishboy-dsh-mesh-0.4.3.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.4/fishboy-dsh-mesh-0.4.4.tgz
 ```
 
 代价：没有 npm 下载统计，更新走 GitHub 而不是 npm。这是退路，不是首选。

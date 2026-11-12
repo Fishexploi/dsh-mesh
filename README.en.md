@@ -35,7 +35,7 @@ host and a parent of another.
 From the release package (simplest, already published):
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.3/fishboy-dsh-mesh-0.4.3.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.4/fishboy-dsh-mesh-0.4.4.tgz
 ```
 
 Or clone the repository and install the folder:
@@ -66,26 +66,22 @@ still connect, but keep both ends on one version):
 Update both ends: approval forwarding, rate limits and the CSRF gates only fully
 apply when both nodes run 0.4.x.
 
-From 0.4.2 a broken plugin can no longer take the whole app down: a client
-bundle that gets composed twice is ignored instead of throwing
-`duplicate factory registration` during the web boot, and a failure inside
-`apply()` (port already in use, damaged state file) is logged and degrades to
-"plugin not started" while DSH keeps opening. A machine that already crashed
-because of a duplicate copy must still clear it first (`sync\purge-mesh.ps1`, or
-delete `node_modules\@fishboy\dsh-mesh` and install again), then update.
+0.4.4 is the new baseline after the rollback: the repository code goes back to
+v0.3.2 and every fix from 0.4.0～0.4.3 is applied on top — the security pass
+(pairing code, CSRF gates, tokens out of the URL), the permission pre-flight,
+landed results and follow-ups, approval forwarding, the `apply()` failure
+degrade, and the repair/diagnose scripts under `sync/`. The duplicate
+registration wrapper that 0.4.2 added to `client.js` is gone: it turned out to be
+a no-op inside DSH's module system and only added complexity. The package name,
+the entry `id` and the file layout stay exactly as in 0.3.2 — nothing is renamed.
 
-From 0.4.3 the pre-update name check only applies when the module name actually
-changes: an install linked from a workspace folder resolves `import.meta.url` to
-a real path outside `node_modules`, which the check used to misread as
-"unresolvable" and refuse. An update that keeps the same name now goes through.
+If a machine still fails to boot with `@fishboy/dsh-mesh: import failed`, clear
+the duplicate copy first (`sync\purge-mesh.ps1`, or delete
+`node_modules\@fishboy\dsh-mesh`), then install 0.4.4.
 
-From 0.4.1 the built-in updater migrates the package name by itself: earlier
-versions renamed the plugin from `dsh-mesh` to `@fishboy/dsh-mesh`, which left
-old profiles pointing at the old name and made DSH fail to boot with
-`import failed`. The updater now rewrites the dependency and bundle row and
-links the scoped name before it writes any file, so updating from 0.3.x or 0.4.0
-no longer needs a manual migration. A machine that already fails to boot still
-needs one run of `sync\repair-profile.ps1` from the disabled-plugins screen.
+From 0.4.1 the built-in updater can migrate the package name when an update
+really changes it; since 0.4.4 never changes it, that path is only a fallback for
+0.4.0-era machines and writes files directly otherwise.
 
 Restart DSH (or reload the profile) after the first install. The **Mesh** icon
 appears in the left rail.
