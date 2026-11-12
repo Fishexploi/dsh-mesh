@@ -184,13 +184,21 @@ try {
   const unscopedDir = join(guardProfile, 'node_modules', 'dsh-mesh')
   mkdirSync(unscopedDir, { recursive: true })
   const scopedPatch = '- insert:\n    - id: dsh-mesh\n      name: "@fishboy/dsh-mesh"\n'
-  const blocked = b.inspectUpdateTarget(scopedPatch, unscopedDir)
+  const blocked = b.inspectUpdateTarget(scopedPatch, unscopedDir, guardProfile)
   if (blocked.ok) throw new Error('update guard allowed a patch row the profile cannot resolve')
   mkdirSync(join(guardProfile, 'node_modules', '@fishboy', 'dsh-mesh'), { recursive: true })
-  const allowed = b.inspectUpdateTarget(scopedPatch, unscopedDir)
+  const allowed = b.inspectUpdateTarget(scopedPatch, unscopedDir, guardProfile)
   if (!allowed.ok) throw new Error('update guard refused a resolvable patch row: ' + allowed.reason)
+  // Same module name as the installed copy: no migration and no refusal, even
+  // when the install lives outside node_modules (a link into a workspace).
+  writeFileSync(join(unscopedDir, 'cordis.patch.yml'), '- insert:\n    - id: dsh-mesh\n      name: dsh-mesh\n')
   const sameName = b.inspectUpdateTarget('- insert:\n    - id: dsh-mesh\n      name: dsh-mesh\n', unscopedDir)
   if (!sameName.ok) throw new Error('update guard refused an identical module name')
+  const linkedDir = join(root, 'elsewhere', 'dsh-mesh')
+  mkdirSync(linkedDir, { recursive: true })
+  writeFileSync(join(linkedDir, 'cordis.patch.yml'), '- insert:\n    - id: dsh-mesh\n      name: dsh-mesh\n')
+  const linked = b.inspectUpdateTarget('- insert:\n    - id: dsh-mesh\n      name: dsh-mesh\n', linkedDir)
+  if (!linked.ok) throw new Error('update guard refused a link install that keeps the same name')
   console.log('update guard: refuses a scoped patch row until the scoped link exists')
 
   // A profile still installed under the old name is migrated instead of bricking.
@@ -205,7 +213,7 @@ try {
     dependencies: { 'dsh-mesh': '0.3.0' },
     dsh: { profile: { bundles: ['dshmarket', 'dsh-mesh'] } },
   }, null, 2))
-  const migration = await b.migrateProfileName('@fishboy/dsh-mesh', oldInstall)
+  const migration = await b.migrateProfileName('@fishboy/dsh-mesh', oldInstall, migrateProfile)
   if (!migration.ok) throw new Error('profile migration failed: ' + migration.reason)
   const migratedManifest = JSON.parse(readFileSync(join(migrateProfile, 'package.json'), 'utf8'))
   if (!migratedManifest.dependencies['@fishboy/dsh-mesh']) throw new Error('migration did not add the scoped dependency')

@@ -14,8 +14,8 @@ import { get as httpsGetRequest } from 'node:https'
 import { execFile } from 'node:child_process'
 import { createSocket } from 'node:dgram'
 import { randomUUID, randomBytes, randomInt, createHash, timingSafeEqual } from 'node:crypto'
-import { mkdir, readFile, writeFile, rename, readdir, stat, rm, symlink } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { mkdir, readFile, writeFile, rename, readdir, stat, rm, symlink, realpath } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { dirname, join, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -122,6 +122,15 @@ function redactUrl(value) {
 function short(value, max = 400) {
   const text = String(value == null ? '' : value)
   return text.length <= max ? text : text.slice(0, max) + '...'
+}
+
+function moduleNameOf(patchText) {
+  const match = /(?:^|\n)\s*(?:-\s*)?name:\s*"?([^"\n#]+)"?/.exec(String(patchText || ''))
+  return match ? match[1].trim() : ''
+}
+
+function readFileSyncSafe(path) {
+  try { return readFileSync(path, 'utf8') } catch { return '' }
 }
 
 function messageOf(error) {
@@ -2870,7 +2879,7 @@ class Mesh {
     }
     const patch = files.get('cordis.patch.yml')
     if (patch) {
-      const verdict = this.inspectUpdateTarget(patch.toString('utf8'))
+      const verdict = this.inspectUpdateTarget(patch.toString('utf8'), this.packageDir, await this.findProfile())
       if (!verdict.ok) throw new Error(verdict.reason)
     }
     for (const [file, data] of files) {
@@ -2890,26 +2899,64 @@ class Mesh {
    * dies with "@scope/name: import failed" — DSH then refuses to start at all.
    * Refuse the update instead of breaking the host.
    */
-  inspectUpdateTarget(patchText, packageDir = this.packageDir) {
-    const match = /(?:^|\n)\s*(?:-\s*)?name:\s*"?([^"\n#]+)"?/.exec(String(patchText || ''))
-    const wanted = match ? match[1].trim() : ''
-    if (!wanted) return { ok: true, wanted: '', reason: '' }
+  inspectUpdateTarget(patchText, packageDir = this.packageDir, profile = '') {
+    const incoming = moduleNameOf(patchText)
+    if (!incoming) return { ok: true, wanted: '', reason: '' }
+    // The name only matters when it changes: an update that keeps the same
+    // specifier cannot break the profile, whatever shape the install has.
+    const current = moduleNameOf(readFileSyncSafe(join(packageDir, 'cordis.patch.yml')))
+    if (current && current === incoming) return { ok: true, wanted: incoming, reason: '' }
     const normalized = String(packageDir || '').replace(/\\/g, '/')
-    if (normalized.endsWith('/node_modules/' + wanted)) return { ok: true, wanted, reason: '' }
     const root = /^(.*)\/node_modules\//.exec(normalized)
-    if (root) {
-      const profile = root[1].replace(/\//g, sep)
-      const target = join(profile, 'node_modules', ...wanted.split('/'))
-      if (existsSync(target)) return { ok: true, wanted, reason: '' }
+    const home = profile || (root ? root[1].replace(/\//g, sep) : '')
+    if (home) {
+      const target = join(home, 'node_modules', ...incoming.split('/'))
+      if (existsSync(target)) return { ok: true, wanted: incoming, reason: '' }
     }
-    const installed = normalized.split('/node_modules/').pop() || normalized
+    const installedName = current || normalized.split(/[\\/]/).pop() || normalized
+    if (!home) {
+      return {
+        ok: false,
+        wanted: incoming,
+        reason: '这次更新会把模块名从 ' + installedName + ' 改成 ' + incoming + '，但找不到这个安装所属的 profile'
+          + '（插件可能装在工作区目录里并通过链接使用），无法确认新名字能否被解析，也无法自动迁移。'
+          + '请在插件面板里重新安装一次，或手工把 ' + incoming + ' 的文件放进安装目录后再点更新。',
+      }
+    }
     return {
       ok: false,
-      wanted,
-      reason: '这次更新会把插件的模块名改成 ' + wanted + '，但本机的安装名还是 ' + installed
-        + '，profile 里也没有 ' + wanted + '；直接更新的话，DSH 下次启动会报 “' + wanted + ': import failed”，整个界面都进不去。'
-        + '请先在目标机器运行 sync\\migrate-scoped.ps1（或重新安装插件），再点检查更新。',
+      wanted: incoming,
+      reason: '这次更新会把插件的模块名从 ' + installedName + ' 改成 ' + incoming
+        + '，但 profile 里没有 ' + incoming + '；直接更新的话，DSH 下次启动会报 “' + incoming + ': import failed”，整个界面都进不去。'
+        + '请先运行 sync\\migrate-scoped.ps1（或重新安装插件），再点检查更新。',
     }
+  }
+
+  /**
+   * Which profile installs this very directory?
+   *
+   * A plugin can be linked from anywhere (a workspace folder, for instance), and
+   * ESM resolves import.meta.url to the real path, so the node_modules layout is
+   * not a reliable hint. Match the link target instead.
+   */
+  async findProfile(packageDir = this.packageDir) {
+    let real = packageDir
+    try { real = await realpath(packageDir) } catch { /* keep the given path */ }
+    let names = []
+    try { names = await readdir(join(dshHome(), 'profiles')) } catch { return '' }
+    const links = [['@fishboy', 'dsh-mesh'], ['dsh-mesh']]
+    for (const name of names) {
+      const profile = join(dshHome(), 'profiles', name)
+      for (const parts of links) {
+        const candidate = join(profile, 'node_modules', ...parts)
+        if (!existsSync(candidate)) continue
+        try {
+          const target = await realpath(candidate)
+          if (target.toLowerCase() === real.toLowerCase()) return profile
+        } catch { /* try the next candidate */ }
+      }
+    }
+    return ''
   }
 
   /**
@@ -2920,14 +2967,18 @@ class Mesh {
    * in the profile too. Doing it here means one click updates an old machine
    * instead of bricking it, and no user has to run a script first.
    */
-  async migrateProfileName(wanted, packageDir = this.packageDir) {
+  async migrateProfileName(wanted, packageDir = this.packageDir, profile = '') {
     const normalized = String(packageDir || '').replace(/\\/g, '/')
-    const match = /^(.*)\/node_modules\/(.+)$/.exec(normalized)
-    if (!match) return { ok: false, reason: '本机的插件安装目录不在 node_modules 下，无法自动迁移 profile' }
-    const profile = match[1].replace(/\//g, sep)
-    const installedName = match[2]
-    if (installedName === wanted) return { ok: true, changed: false, profile }
-    const manifestPath = join(profile, 'package.json')
+    const home = profile || await this.findProfile(packageDir)
+    if (!home) return { ok: false, reason: '找不到这个安装所属的 profile，无法自动迁移' }
+    if (existsSync(join(home, 'node_modules', ...wanted.split('/')))) {
+      return { ok: true, changed: false, profile: home }
+    }
+    const root = /^(.*)\/node_modules\/(.+)$/.exec(normalized)
+    const installedName = root ? root[2] : (moduleNameOf(readFileSyncSafe(join(packageDir, 'cordis.patch.yml'))) || '')
+    if (!installedName) return { ok: false, reason: '读不到当前安装的模块名，无法自动迁移' }
+    if (installedName === wanted) return { ok: true, changed: false, profile: home }
+    const manifestPath = join(home, 'package.json')
     if (!existsSync(manifestPath)) return { ok: false, reason: '找不到 profile 的 package.json，无法自动迁移' }
     let manifest
     try {
@@ -2938,7 +2989,7 @@ class Mesh {
     const spec = manifest.dependencies && manifest.dependencies[installedName]
     if (!spec) return { ok: false, reason: 'profile 的依赖里没有 ' + installedName + '，无法自动迁移' }
     // 1. link the new name at this very install directory
-    const target = join(profile, 'node_modules', ...wanted.split('/'))
+    const target = join(home, 'node_modules', ...wanted.split('/'))
     if (!existsSync(target)) {
       await mkdir(dirname(target), { recursive: true })
       await symlink(packageDir, target, 'junction')
@@ -2952,7 +3003,7 @@ class Mesh {
     }
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
     console.log('[dsh-mesh] profile migrated: ' + installedName + ' -> ' + wanted)
-    return { ok: true, changed: true, profile, from: installedName, to: wanted }
+    return { ok: true, changed: true, profile: home, from: installedName, to: wanted }
   }
 
   async applyUpdate() {
@@ -2964,14 +3015,15 @@ class Mesh {
     // resolvability check has to happen before either of them touches anything.
     if (check.sha) {
       let verdict = null
+      const profile = await this.findProfile()
       try {
         const patch = await httpsBuffer(this.rawUpdateUrl('cordis.patch.yml', check.sha))
-        verdict = this.inspectUpdateTarget(patch.toString('utf8'))
+        verdict = this.inspectUpdateTarget(patch.toString('utf8'), this.packageDir, profile)
       } catch (error) {
         console.log('[dsh-mesh] update pre-check skipped: ' + messageOf(error))
       }
       if (verdict && !verdict.ok) {
-        const migrated = await this.migrateProfileName(verdict.wanted)
+        const migrated = await this.migrateProfileName(verdict.wanted, this.packageDir, profile)
         if (!migrated.ok) {
           return {
             ...check,
