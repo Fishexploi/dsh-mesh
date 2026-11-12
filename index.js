@@ -14,7 +14,7 @@ import { get as httpsGetRequest } from 'node:https'
 import { execFile } from 'node:child_process'
 import { createSocket } from 'node:dgram'
 import { randomUUID, randomBytes, randomInt, createHash, timingSafeEqual } from 'node:crypto'
-import { mkdir, readFile, writeFile, rename, readdir, stat, rm } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rename, readdir, stat, rm, symlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { dirname, join, extname, resolve, sep } from 'node:path'
@@ -2912,6 +2912,49 @@ class Mesh {
     }
   }
 
+  /**
+   * Point the profile at the name the incoming patch row asks for.
+   *
+   * Renaming the package is a compatibility event: the patch row names the module
+   * by its specifier, so every install made under the old name has to be renamed
+   * in the profile too. Doing it here means one click updates an old machine
+   * instead of bricking it, and no user has to run a script first.
+   */
+  async migrateProfileName(wanted, packageDir = this.packageDir) {
+    const normalized = String(packageDir || '').replace(/\\/g, '/')
+    const match = /^(.*)\/node_modules\/(.+)$/.exec(normalized)
+    if (!match) return { ok: false, reason: '本机的插件安装目录不在 node_modules 下，无法自动迁移 profile' }
+    const profile = match[1].replace(/\//g, sep)
+    const installedName = match[2]
+    if (installedName === wanted) return { ok: true, changed: false, profile }
+    const manifestPath = join(profile, 'package.json')
+    if (!existsSync(manifestPath)) return { ok: false, reason: '找不到 profile 的 package.json，无法自动迁移' }
+    let manifest
+    try {
+      manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    } catch (error) {
+      return { ok: false, reason: 'profile 的 package.json 不是有效 JSON：' + messageOf(error) }
+    }
+    const spec = manifest.dependencies && manifest.dependencies[installedName]
+    if (!spec) return { ok: false, reason: 'profile 的依赖里没有 ' + installedName + '，无法自动迁移' }
+    // 1. link the new name at this very install directory
+    const target = join(profile, 'node_modules', ...wanted.split('/'))
+    if (!existsSync(target)) {
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(packageDir, target, 'junction')
+    }
+    // 2. move the dependency to the new name
+    delete manifest.dependencies[installedName]
+    manifest.dependencies[wanted] = 'link:' + normalized
+    // 3. rename the bundle row
+    if (manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)) {
+      manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.map(item => (item === installedName ? wanted : item))
+    }
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+    console.log('[dsh-mesh] profile migrated: ' + installedName + ' -> ' + wanted)
+    return { ok: true, changed: true, profile, from: installedName, to: wanted }
+  }
+
   async applyUpdate() {
     const check = await this.checkUpdate()
     if (!check.available) {
@@ -2928,7 +2971,16 @@ class Mesh {
         console.log('[dsh-mesh] update pre-check skipped: ' + messageOf(error))
       }
       if (verdict && !verdict.ok) {
-        return { ...check, updated: false, blocked: true, message: verdict.reason }
+        const migrated = await this.migrateProfileName(verdict.wanted)
+        if (!migrated.ok) {
+          return {
+            ...check,
+            updated: false,
+            blocked: true,
+            message: verdict.reason + '（自动迁移也失败：' + migrated.reason + '）',
+          }
+        }
+        console.log('[dsh-mesh] update: profile renamed to ' + verdict.wanted + ' before writing files')
       }
     }
     let method = 'files'

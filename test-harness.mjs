@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -192,6 +192,28 @@ try {
   const sameName = b.inspectUpdateTarget('- insert:\n    - id: dsh-mesh\n      name: dsh-mesh\n', unscopedDir)
   if (!sameName.ok) throw new Error('update guard refused an identical module name')
   console.log('update guard: refuses a scoped patch row until the scoped link exists')
+
+  // A profile still installed under the old name is migrated instead of bricking.
+  const migrateRoot = join(root, 'migrate')
+  const migrateProfile = join(migrateRoot, 'profile')
+  const oldInstall = join(migrateProfile, 'node_modules', 'dsh-mesh')
+  mkdirSync(oldInstall, { recursive: true })
+  writeFileSync(join(oldInstall, 'package.json'), JSON.stringify({ name: 'dsh-mesh', version: '0.3.0' }))
+  writeFileSync(join(migrateProfile, 'package.json'), JSON.stringify({
+    name: 'p',
+    private: true,
+    dependencies: { 'dsh-mesh': '0.3.0' },
+    dsh: { profile: { bundles: ['dshmarket', 'dsh-mesh'] } },
+  }, null, 2))
+  const migration = await b.migrateProfileName('@fishboy/dsh-mesh', oldInstall)
+  if (!migration.ok) throw new Error('profile migration failed: ' + migration.reason)
+  const migratedManifest = JSON.parse(readFileSync(join(migrateProfile, 'package.json'), 'utf8'))
+  if (!migratedManifest.dependencies['@fishboy/dsh-mesh']) throw new Error('migration did not add the scoped dependency')
+  if (migratedManifest.dependencies['dsh-mesh']) throw new Error('migration left the old dependency key')
+  if (!migratedManifest.dsh.profile.bundles.includes('@fishboy/dsh-mesh')) throw new Error('migration did not rewrite the bundle row')
+  if (!existsSync(join(migrateProfile, 'node_modules', '@fishboy', 'dsh-mesh'))) throw new Error('migration did not link the scoped name')
+  console.log('profile migration: old install renamed in place')
+
 
 
   // ── permission pre-flight: refuse before anything is sent ──
