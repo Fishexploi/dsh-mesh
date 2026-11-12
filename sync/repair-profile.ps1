@@ -37,7 +37,8 @@ function Get-MeshKeys($obj) {
   @($obj.PSObject.Properties.Name | Where-Object { $_ -match '(^|/)dsh-mesh$' })
 }
 
-$depKeys = if ($manifest.dependencies) { Get-MeshKeys $manifest.dependencies } else { @() }
+$depKeys = @()
+if ($manifest.dependencies) { $depKeys = @(Get-MeshKeys $manifest.dependencies) }
 $bundles = @()
 if ($manifest.dsh -and $manifest.dsh.profile -and $manifest.dsh.profile.bundles) { $bundles = @($manifest.dsh.profile.bundles) }
 $bundleMesh = @($bundles | Where-Object { $_ -match '(^|/)dsh-mesh$' })
@@ -90,6 +91,7 @@ if (Test-Path -LiteralPath $patchPath) {
 
 $problems = @()
 if ($bundleMesh.Count -gt 1) { $problems += 'the bundle list has more than one dsh-mesh row' }
+if ($bundleMesh.Count -eq 0) { $problems += 'the bundle list has no dsh-mesh row, so the plugin is installed but not enabled' }
 if ($depKeys.Count -gt 1) { $problems += 'the dependency list has more than one dsh-mesh key' }
 if ($installed.Count -gt 1) { $problems += 'node_modules holds more than one dsh-mesh copy' }
 if ($bundleMesh.Count -eq 1 -and $bundleMesh[0] -ne $Canonical) { $problems += "the bundle row is still the old name ($($bundleMesh[0]))" }
