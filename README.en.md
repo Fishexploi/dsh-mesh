@@ -35,7 +35,7 @@ host and a parent of another.
 From the release package (simplest, already published):
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.2/fishboy-dsh-mesh-0.4.2.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.3/fishboy-dsh-mesh-0.4.3.tgz
 ```
 
 Or clone the repository and install the folder:
@@ -73,6 +73,11 @@ bundle that gets composed twice is ignored instead of throwing
 "plugin not started" while DSH keeps opening. A machine that already crashed
 because of a duplicate copy must still clear it first (`sync\purge-mesh.ps1`, or
 delete `node_modules\@fishboy\dsh-mesh` and install again), then update.
+
+From 0.4.3 the pre-update name check only applies when the module name actually
+changes: an install linked from a workspace folder resolves `import.meta.url` to
+a real path outside `node_modules`, which the check used to misread as
+"unresolvable" and refuse. An update that keeps the same name now goes through.
 
 From 0.4.1 the built-in updater migrates the package name by itself: earlier
 versions renamed the plugin from `dsh-mesh` to `@fishboy/dsh-mesh`, which left
