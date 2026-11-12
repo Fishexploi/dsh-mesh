@@ -9,7 +9,7 @@
 一台 DSH 当“上级”，把任务派给其他 DSH；子级在自己的工作区里干活，完成后把结果和文件交回来；遇到敏感操作，子级把审批请求送到上级，由上级点“允许”或“拒绝”。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-0.4.6-2f81f7?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.4.7-2f81f7?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" />
   <img alt="dsh" src="https://img.shields.io/badge/DSH-%5E0.2.2--rc.1-8957e5?style=flat-square" />
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b949e?style=flat-square" />
@@ -70,7 +70,7 @@
 用 Release 里的打包文件（当前最省事，已发布）：
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.6/fishboy-dsh-mesh-0.4.6.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.7/fishboy-dsh-mesh-0.4.7.tgz
 ```
 
 或者从源码本地安装：
@@ -90,6 +90,10 @@ git clone https://github.com/Fishexploi/dsh-mesh.git
 1. **监听默认姿态变了**：新装的节点默认**不监听**、且只绑 `127.0.0.1`。已经配对过的老节点升级后保持原样，不会被切断；但如果你要给新的子级机器配对，记得先在那台机器上打开「开放 Mesh 端口」并选「所有网卡」。
 2. **配对码变成单次使用**：配对成功后码立即作废，之后靠令牌重连。想重新配对，在子级点「刷新」生成新码。
 3. **令牌不再放在 URL 里**：新版本走 `Authorization: Bearer`；仅当对面是 0.4.0 之前的版本时才回退到查询串，所以一半升级也不会断连。
+
+**0.4.7 起，已配对的节点会在广播里说明自己已有上级**：UDP 发现包新增 `parented` 与 `parentName`，`accepting` 在已配对时变为 `false`，上级面板里这类节点显示「已有上级：<名字>」且配对按钮置灰。服务端仍会拒绝第二个上级，前端只是提前说明。若想让子级配对后**完全隐身**（不再广播），需要改 `broadcastNow` 的发送条件，代价是上级重建后得在子级手动「重新开放配对」。
+
+**0.4.6 起，客户端 bundle 以自己的包名注册、且不再 `immediately` 预加载**：此前 id 写成 `dsh-mesh` 与 boot 清单的 `@fishboy/dsh-mesh` 不一致，加载器找不到 factory，表现为 `import failed` / `duplicate factory registration`。
 
 **0.4.4 是回退后的新基线：仓库代码回到 v0.3.2，再叠加 0.4.0～0.4.3 期间的全部修复**。具体是：安全加固（配对码、CSRF、令牌不进 URL）、权限预检、结果落盘与续聊、审批转发、`apply()` 失败降级、`sync/` 下的修复与诊断脚本都在；**去掉了 0.4.2 给 `client.js` 加的那层"重复注册保护"**——实测它在 DSH 的模块系统里是无效的，只会增加复杂度。包名、`id`、文件结构一律**保持 0.3.2 原样，没有任何改名**。
 
