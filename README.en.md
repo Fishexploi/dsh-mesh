@@ -35,7 +35,7 @@ host and a parent of another.
 From the release package (simplest, already published):
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.5/fishboy-dsh-mesh-0.4.5.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.6/fishboy-dsh-mesh-0.4.6.tgz
 ```
 
 Or clone the repository and install the folder:
