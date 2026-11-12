@@ -178,6 +178,22 @@ try {
   if (!pingLegacy || typeof pingLegacy.time !== 'number') throw new Error('query token fallback failed')
   console.log('token transport: header for 0.4.0+, query fallback for older')
 
+  // ── update guard: never let an update make the host unbootable ──
+  const guardRoot = join(root, 'guard')
+  const guardProfile = join(guardRoot, 'profile')
+  const unscopedDir = join(guardProfile, 'node_modules', 'dsh-mesh')
+  mkdirSync(unscopedDir, { recursive: true })
+  const scopedPatch = '- insert:\n    - id: dsh-mesh\n      name: "@fishboy/dsh-mesh"\n'
+  const blocked = b.inspectUpdateTarget(scopedPatch, unscopedDir)
+  if (blocked.ok) throw new Error('update guard allowed a patch row the profile cannot resolve')
+  mkdirSync(join(guardProfile, 'node_modules', '@fishboy', 'dsh-mesh'), { recursive: true })
+  const allowed = b.inspectUpdateTarget(scopedPatch, unscopedDir)
+  if (!allowed.ok) throw new Error('update guard refused a resolvable patch row: ' + allowed.reason)
+  const sameName = b.inspectUpdateTarget('- insert:\n    - id: dsh-mesh\n      name: dsh-mesh\n', unscopedDir)
+  if (!sameName.ok) throw new Error('update guard refused an identical module name')
+  console.log('update guard: refuses a scoped patch row until the scoped link exists')
+
+
   // ── permission pre-flight: refuse before anything is sent ──
   const tasksBefore = Object.keys(a.state.tasks).length
   a.state.children[b.state.nodeId].grant = 'none'

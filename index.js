@@ -39,6 +39,7 @@ const UPDATE_FILES = [
   'cordis.patch.yml',
   'package.json',
   'icon.svg',
+  'SECURITY.md',
   'locale/en.json',
   'locale/zh.json',
   'README.md',
@@ -2867,6 +2868,11 @@ class Mesh {
       }
       files.set(file, data)
     }
+    const patch = files.get('cordis.patch.yml')
+    if (patch) {
+      const verdict = this.inspectUpdateTarget(patch.toString('utf8'))
+      if (!verdict.ok) throw new Error(verdict.reason)
+    }
     for (const [file, data] of files) {
       const target = join(this.packageDir, file)
       await mkdir(dirname(target), { recursive: true })
@@ -2876,10 +2882,54 @@ class Mesh {
     }
   }
 
+  /**
+   * Would this update leave the profile unable to resolve the plugin?
+   *
+   * The patch row names the module by its published specifier. A profile that
+   * still installs the old unscoped name cannot resolve it, and the next boot
+   * dies with "@scope/name: import failed" — DSH then refuses to start at all.
+   * Refuse the update instead of breaking the host.
+   */
+  inspectUpdateTarget(patchText, packageDir = this.packageDir) {
+    const match = /(?:^|\n)\s*(?:-\s*)?name:\s*"?([^"\n#]+)"?/.exec(String(patchText || ''))
+    const wanted = match ? match[1].trim() : ''
+    if (!wanted) return { ok: true, wanted: '', reason: '' }
+    const normalized = String(packageDir || '').replace(/\\/g, '/')
+    if (normalized.endsWith('/node_modules/' + wanted)) return { ok: true, wanted, reason: '' }
+    const root = /^(.*)\/node_modules\//.exec(normalized)
+    if (root) {
+      const profile = root[1].replace(/\//g, sep)
+      const target = join(profile, 'node_modules', ...wanted.split('/'))
+      if (existsSync(target)) return { ok: true, wanted, reason: '' }
+    }
+    const installed = normalized.split('/node_modules/').pop() || normalized
+    return {
+      ok: false,
+      wanted,
+      reason: '这次更新会把插件的模块名改成 ' + wanted + '，但本机的安装名还是 ' + installed
+        + '，profile 里也没有 ' + wanted + '；直接更新的话，DSH 下次启动会报 “' + wanted + ': import failed”，整个界面都进不去。'
+        + '请先在目标机器运行 sync\\migrate-scoped.ps1（或重新安装插件），再点检查更新。',
+    }
+  }
+
   async applyUpdate() {
     const check = await this.checkUpdate()
     if (!check.available) {
       return { ...check, updated: false, message: '已经是最新版本' }
+    }
+    // Both methods (git pull and file download) rewrite cordis.patch.yml, so the
+    // resolvability check has to happen before either of them touches anything.
+    if (check.sha) {
+      let verdict = null
+      try {
+        const patch = await httpsBuffer(this.rawUpdateUrl('cordis.patch.yml', check.sha))
+        verdict = this.inspectUpdateTarget(patch.toString('utf8'))
+      } catch (error) {
+        console.log('[dsh-mesh] update pre-check skipped: ' + messageOf(error))
+      }
+      if (verdict && !verdict.ok) {
+        return { ...check, updated: false, blocked: true, message: verdict.reason }
+      }
     }
     let method = 'files'
     let gitError = ''
