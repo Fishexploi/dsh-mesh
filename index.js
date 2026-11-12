@@ -3248,13 +3248,19 @@ class Mesh {
 }
 
 export function apply(ctx, config) {
-  const mesh = new Mesh(ctx, config)
-  ctx.effect(() => {
-    const dispose = mesh.start()
-    return () => {
-      dispose().catch(error => console.error('[dsh-mesh] stop failed: ' + messageOf(error)))
-    }
-  })
+  try {
+    const mesh = new Mesh(ctx, config)
+    ctx.effect(() => {
+      const dispose = mesh.start()
+      return () => {
+        dispose().catch(error => console.error('[dsh-mesh] stop failed: ' + messageOf(error)))
+      }
+    })
+  } catch (error) {
+    // Never take the whole app down because this plugin could not start: log it
+    // and leave DSH bootable so the panel can report the problem instead.
+    console.error('[dsh-mesh] activation failed, plugin disabled: ' + messageOf(error))
+  }
 }
 
 export { Mesh }

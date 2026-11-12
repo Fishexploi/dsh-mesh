@@ -1,3 +1,26 @@
+// If the host composes this bundle twice, the second execution would throw
+// "duplicate factory registration for dsh-mesh" and take the whole web boot
+// down. Swallow only that exact duplicate; a real reload invalidates first and
+// still re-registers normally.
+;(function guardDuplicateRegistration() {
+  const loader = window.__ModuleLoader__
+  if (!loader || loader.__dshMeshGuard) return
+  loader.__dshMeshGuard = true
+  const original = loader.load
+  loader.load = function load(entry) {
+    try {
+      return original.call(this, entry)
+    } catch (error) {
+      const text = String((error && error.message) || error)
+      if (entry && entry.id === 'dsh-mesh' && /duplicate factory registration/i.test(text)) {
+        console.warn('[dsh-mesh] duplicate client bundle ignored')
+        return
+      }
+      throw error
+    }
+  }
+})()
+
 window.__ModuleLoader__.load({
   id: 'dsh-mesh',
   factory(require) {
