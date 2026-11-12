@@ -514,13 +514,15 @@ window.__ModuleLoader__.load({
 
     function DiscoverCard({ item, onConnect }) {
       return h(Card, { style: { padding: 11, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 } },
-        h(Dot, { online: item.accepting }),
+        h(Dot, { online: item.accepting && !item.parented }),
         h('div', { style: { minWidth: 0 } },
           h('div', { style: { fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.name),
-          h('div', { style: { fontSize: 11, color: TOKEN.muted } }, `${item.host}:${item.port}`),
+          h('div', { style: { fontSize: 11, color: TOKEN.muted } }, item.parented
+            ? `${item.host}:${item.port} · 已有上级：${item.parentName || '未知'}`
+            : `${item.host}:${item.port}`),
         ),
         h('span', { style: { flex: 1 } }),
-        h(Button, { kind: 'primary', onClick: () => onConnect(item) }, '配对连接'),
+        h(Button, { kind: 'primary', disabled: item.parented, title: item.parented ? '该节点已有上级，无法再次配对' : '', onClick: () => onConnect(item) }, '配对连接'),
       );
     }
 

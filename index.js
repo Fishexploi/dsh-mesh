@@ -2227,6 +2227,8 @@ class Mesh {
             host: rinfo.address,
             port: Number(data.port) || 0,
             accepting: data.accepting !== false,
+            parented: data.parented === true,
+            parentName: String(data.parentName || '').slice(0, 80),
             seenAt: now(),
           })
         } catch {
@@ -2278,16 +2280,26 @@ class Mesh {
     }
   }
 
-  broadcastNow() {
-    if (!this.broadcaster || !this.server || this.stopped || !this.state.discoveryEnabled) return
-    const payload = Buffer.from(JSON.stringify({
+  /** What one discovery announcement says about this node. */
+  discoveryPayload() {
+    const parent = this.state.parent
+    return {
       magic: 'dsh-mesh',
       protocol: PROTOCOL,
       nodeId: this.state.nodeId,
       name: this.state.name,
       port: this.port,
-      accepting: this.state.allowParent,
-    }))
+      // A node that already has a parent cannot take another one: say so instead
+      // of advertising itself as pairable and rejecting the handshake later.
+      accepting: this.state.allowParent && !parent,
+      parented: Boolean(parent),
+      parentName: parent ? String(parent.name || '').slice(0, 80) : '',
+    }
+  }
+
+  broadcastNow() {
+    if (!this.broadcaster || !this.server || this.stopped || !this.state.discoveryEnabled) return
+    const payload = Buffer.from(JSON.stringify(this.discoveryPayload()))
     try {
       this.broadcaster.send(payload, 0, payload.length, DISCOVERY_PORT, '255.255.255.255')
     } catch {

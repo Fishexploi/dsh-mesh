@@ -140,6 +140,20 @@ try {
   await a.connectChild({ name: 'B', host: '127.0.0.1', port: b.state.listenPort, code })
   await wait(() => b.state.parent && a.children.get(b.state.nodeId)?.online, 8000, 'pair + stream')
   console.log('pair ok:', b.state.parent.name, '->', a.state.children[b.state.nodeId].name)
+
+  // A paired node must say so on the LAN and stop advertising itself as pairable.
+  const pairedPayload = b.discoveryPayload()
+  if (!pairedPayload.parented || !pairedPayload.parentName || pairedPayload.accepting) {
+    throw new Error('a paired node still advertises itself as accepting a new parent')
+  }
+  const savedParent = b.state.parent
+  b.state.parent = null
+  const freePayload = b.discoveryPayload()
+  if (freePayload.parented || freePayload.parentName || freePayload.accepting !== true) {
+    throw new Error('an unpaired node should advertise itself as pairable')
+  }
+  b.state.parent = savedParent
+  console.log('discovery payload: paired nodes name their parent and refuse new pairings')
   if (!/^服务器/.test(a.state.children[b.state.nodeId].alias || '')) throw new Error('child alias missing')
 
   b.setGrant('workspace-write')
