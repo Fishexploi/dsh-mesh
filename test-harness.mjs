@@ -521,6 +521,20 @@ try {
   await wait(() => a.state.tasks[approvalTask.id].approvalPending === false, 8000, 'approval cleared')
   console.log('approval ok:', approval.id, decision, '(notice + mesh_approve)')
 
+  // The client bundle must register under the package name: the boot manifest
+  // keys entries by that name, and a mismatch leaves the factory unreachable
+  // (which surfaces as "import failed" during the web boot).
+  const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+  const clientSource = readFileSync(new URL('./client.js', import.meta.url), 'utf8')
+  const clientId = /id:\s*'([^']+)'/.exec(clientSource)?.[1]
+  if (clientId !== manifest.name) {
+    throw new Error(`client.js registers as ${clientId} but the package is ${manifest.name}`)
+  }
+  if (manifest.dsh.client.immediately !== undefined) {
+    throw new Error('dsh.client.immediately must stay unset: eager loading makes the bundle execute twice')
+  }
+  console.log('client bundle: id matches the package name and is not loaded eagerly')
+
   console.log('ALL OK')
 } finally {
   await disposeA()

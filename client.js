@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-mesh',
+  id: '@fishboy/dsh-mesh',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
