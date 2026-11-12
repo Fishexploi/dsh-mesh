@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -87,17 +87,55 @@ async function toolValue(name, args, matches) {
   return last
 }
 
+/** Minimal request/response pair for driving the local UI API in tests. */
+function fakeExchange({ method = 'POST', path = '/mesh/api/state', headers = {}, remote = '127.0.0.1', body = '' } = {}) {
+  const chunks = body ? [Buffer.from(body, 'utf8')] : []
+  const req = {
+    method,
+    url: path,
+    headers: { host: '127.0.0.1:59010', ...headers },
+    socket: { remoteAddress: remote },
+    on(event, handler) {
+      if (event === 'data') chunks.forEach(chunk => handler(chunk))
+      if (event === 'end') handler()
+      return req
+    },
+    destroy() {},
+  }
+  const out = { status: 0, body: '', headers: {} }
+  const res = {
+    writeHead(status, extra) {
+      out.status = status
+      Object.assign(out.headers, extra || {})
+      return res
+    },
+    end(payload) {
+      out.body = payload == null ? '' : String(payload)
+    },
+    destroy() {},
+  }
+  return { req, res, out }
+}
+
+async function callApi(mesh, options) {
+  const { req, res, out } = fakeExchange(options)
+  await mesh.handleApi(req, res)
+  let parsed = null
+  try { parsed = JSON.parse(out.body) } catch { parsed = null }
+  return { status: out.status, headers: out.headers, body: parsed, raw: out.body }
+}
+
 const a = new Mesh(ctx, {
   stateDir: join(root, 'a'), name: 'A', port: 46710, allowParent: false,
 })
 const b = new Mesh(ctx, {
-  stateDir: join(root, 'b'), name: 'B', port: 46711, allowParent: true,
+  stateDir: join(root, 'b'), name: 'B', port: 46711, allowParent: true, listenEnabled: true,
 })
 
 const disposeA = a.start()
 const disposeB = b.start()
 try {
-  await wait(() => a.server && b.server, 8000, 'servers')
+  await wait(() => b.server, 8000, 'child listens')
   const code = b.state.pairingCode
   await a.connectChild({ name: 'B', host: '127.0.0.1', port: b.state.listenPort, code })
   await wait(() => b.state.parent && a.children.get(b.state.nodeId)?.online, 8000, 'pair + stream')
@@ -106,6 +144,68 @@ try {
 
   b.setGrant('workspace-write')
   await wait(() => a.state.children[b.state.nodeId]?.grant === 'workspace-write', 8000, 'grant')
+
+  // ── security: single-use code, hashed token, header transport, API gates ──
+  if (b.state.pairingCode !== null) throw new Error('pairing code survived a successful pairing')
+  if (!b.state.parent.tokenHash) throw new Error('parent token was not stored as a hash')
+  if (b.state.parent.token) throw new Error('parent token still kept in clear')
+  console.log('pairing hardened: code single-use, token stored as hash')
+
+  const infoExchange = fakeExchange({ method: 'GET', path: '/mesh/info' })
+  await b.handleRequest(infoExchange.req, infoExchange.res)
+  const info = JSON.parse(infoExchange.out.body)
+  if (Object.keys(info).join(',') !== 'protocol') throw new Error('info endpoint leaks node identity: ' + JSON.stringify(info))
+  console.log('info endpoint: protocol only')
+
+  const evilOrigin = await callApi(b, { method: 'POST', path: '/mesh/api/delete-task', headers: { 'content-type': 'application/json', origin: 'https://evil.example' }, body: '{"taskId":"x"}' })
+  if (evilOrigin.status !== 403) throw new Error('cross-origin POST was not rejected: ' + evilOrigin.status)
+  const textPlain = await callApi(b, { method: 'POST', path: '/mesh/api/delete-task', headers: { 'content-type': 'text/plain' }, body: '{"taskId":"x"}' })
+  if (textPlain.status !== 415) throw new Error('non-JSON POST was not rejected: ' + textPlain.status)
+  const remote = await callApi(b, { method: 'GET', path: '/mesh/api/state', remote: '192.168.1.9' })
+  if (remote.status !== 403) throw new Error('non-loopback API request was not rejected: ' + remote.status)
+  const local = await callApi(b, { method: 'GET', path: '/mesh/api/state', headers: { origin: 'http://127.0.0.1:59010' } })
+  if (local.status !== 200) throw new Error('local API request was rejected: ' + local.status)
+  if (local.headers['x-content-type-options'] !== 'nosniff') throw new Error('nosniff header missing')
+  console.log('local API gates: origin, content-type, loopback, nosniff')
+
+  // A child that reports 0.4.0+ gets the token in the Authorization header only.
+  const childRecord = a.state.children[b.state.nodeId]
+  childRecord.version = '0.4.0'
+  const ping = await a.rpcChild(childRecord, 'ping')
+  if (!ping || typeof ping.time !== 'number') throw new Error('header token transport failed')
+  childRecord.version = '0.3.0'
+  const pingLegacy = await a.rpcChild(childRecord, 'ping')
+  if (!pingLegacy || typeof pingLegacy.time !== 'number') throw new Error('query token fallback failed')
+  console.log('token transport: header for 0.4.0+, query fallback for older')
+
+  // ── rate limits ──
+  const limitRoot = join(root, 'limit')
+  mkdirSync(limitRoot, { recursive: true })
+  const limit = new Mesh(ctx, { stateDir: limitRoot, name: 'L', port: 46712, listenEnabled: true })
+  const before = limit.state.pairingCode
+  limit.notePairingFailure('10.0.0.9', 'wrong code')
+  limit.notePairingFailure('10.0.0.9', 'wrong code')
+  limit.notePairingFailure('10.0.0.9', 'wrong code')
+  if (limit.state.pairingCode === before) throw new Error('pairing code did not rotate after failures')
+  limit.notePairingFailure('10.0.0.9', 'wrong code')
+  limit.notePairingFailure('10.0.0.9', 'wrong code')
+  if (limit.pairingGate('10.0.0.9') <= 0) throw new Error('pairing source was not locked out')
+  if (limit.pairingGate('10.0.0.99') !== 0) throw new Error('lockout leaked to another address')
+  console.log('pairing defence: code rotates after 3 failures, source locked after 5')
+
+  b.state.settings.rpcPerMinute = 3
+  let throttled = false
+  for (let i = 0; i < 5; i += 1) {
+    try {
+      await a.rpcChild(childRecord, 'ping')
+    } catch (error) {
+      if (/频繁/.test(String(error.message))) { throttled = true; break }
+      throw error
+    }
+  }
+  if (!throttled) throw new Error('rpc rate limit did not trigger')
+  b.state.settings.rpcPerMinute = 120
+  console.log('rpc rate limit: enforced per parent')
 
   b.runIncomingTask = async task => {
     task.status = 'running'

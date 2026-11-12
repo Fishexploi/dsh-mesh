@@ -727,6 +727,9 @@ window.__ModuleLoader__.load({
                 h(Button, { onClick: () => run('pairing-code', {}).catch(() => {}) }, '刷新'),
               )
             : h(Badge, { tone: parent ? 'good' : 'neutral' }, parent ? '已绑定上级' : '监听已关闭'),
+          node.listenEnabled && node.listenHost !== '0.0.0.0'
+            ? h(Badge, { tone: 'warn' }, '仅本机监听，别的机器连不进来')
+            : null,
         ),
         node.error ? h('div', {
           style: { marginTop: 12, padding: '9px 11px', borderRadius: 8, color: TOKEN.bad, background: `color-mix(in srgb, ${TOKEN.bad} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${TOKEN.bad} 30%, transparent)`, fontSize: 12 },
@@ -887,7 +890,7 @@ window.__ModuleLoader__.load({
                 onSave: value => run('settings', value).then(() => setSettingsOpen(false)),
               })
             : h('div', { style: { fontSize: 12, color: TOKEN.muted } },
-                `监听端口 ${node.listenPort} · 工作区 ${node.workspaceRoot} · 审批超时 ${Math.round((node.approvalTimeoutMs || 0) / 60000)} 分钟 · 结果摘要 ${node.previewChars || 1200} 字`,
+                `监听 ${node.listenHost === '0.0.0.0' ? '所有网卡' : '仅本机'}（端口 ${node.listenPort}）· 局域网发现 ${node.discoveryEnabled ? '开' : '关'} · 工作区 ${node.workspaceRoot} · 审批超时 ${Math.round((node.approvalTimeoutMs || 0) / 60000)} 分钟 · 结果摘要 ${node.previewChars || 1200} 字`,
               ),
         ),
 
@@ -956,6 +959,8 @@ window.__ModuleLoader__.load({
       const [port, setPort] = useState(String(node.listenPort || 45900));
       const [allowParent, setAllowParent] = useState(Boolean(node.allowParent));
       const [listenEnabled, setListenEnabled] = useState(Boolean(node.listenEnabled));
+      const [listenHost, setListenHost] = useState(node.listenHost === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1');
+      const [discoveryEnabled, setDiscoveryEnabled] = useState(Boolean(node.discoveryEnabled));
       const [workspaceRoot, setWorkspaceRoot] = useState(node.workspaceRoot || '');
       const [timeoutMinutes, setTimeoutMinutes] = useState(String(Math.round((node.approvalTimeoutMs || 600000) / 60000)));
       const [previewChars, setPreviewChars] = useState(String(node.previewChars || 1200));
@@ -969,6 +974,8 @@ window.__ModuleLoader__.load({
             listenPort: Number(port),
             allowParent,
             listenEnabled,
+            listenHost,
+            discoveryEnabled,
             workspaceRoot,
             approvalTimeoutMs: Math.max(5, Number(timeoutMinutes) || 10) * 60000,
             previewChars: Math.max(200, Number(previewChars) || 1200),
@@ -988,6 +995,20 @@ window.__ModuleLoader__.load({
         h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' } },
           h('input', { type: 'checkbox', checked: listenEnabled, onChange: event => setListenEnabled(event.target.checked) }),
           '开放 Mesh 端口，允许别的 DSH 连接本机',
+        ),
+        h(Field, { label: '监听地址', hint: '默认只监听本机；要让别的机器连进来必须改成「所有网卡」，且它是明文 HTTP，仅在可信局域网这样做。' },
+          h(Select, {
+            value: listenHost,
+            options: [
+              { value: '127.0.0.1', label: '仅本机（127.0.0.1）' },
+              { value: '0.0.0.0', label: '所有网卡（0.0.0.0，局域网可见）' },
+            ],
+            onChange: event => setListenHost(event.target.value),
+          }),
+        ),
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' } },
+          h('input', { type: 'checkbox', checked: discoveryEnabled, onChange: event => setDiscoveryEnabled(event.target.checked) }),
+          '在局域网内广播自己（UDP 发现；关闭后仍可手动填 IP 连接）',
         ),
         h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' } },
           h('input', { type: 'checkbox', checked: allowParent, onChange: event => setAllowParent(event.target.checked) }),

@@ -13,7 +13,7 @@ import { createServer as createHttpServer, request as httpRequest } from 'node:h
 import { get as httpsGetRequest } from 'node:https'
 import { execFile } from 'node:child_process'
 import { createSocket } from 'node:dgram'
-import { randomUUID, randomBytes } from 'node:crypto'
+import { randomUUID, randomBytes, randomInt, createHash, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, writeFile, rename, readdir, stat, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
@@ -21,6 +21,14 @@ import { dirname, join, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PROTOCOL = 1
+// Peers at or above this version no longer need the token in the query string;
+// older ones still get it there so a half-updated pair keeps working.
+const HEADER_TOKEN_SINCE = '0.4.0'
+const PAIRING_MAX_FAILURES = 5
+const PAIRING_ROTATE_AFTER = 3
+const PAIRING_LOCK_MS = 10 * 60 * 1000
+const RPC_PER_MINUTE_DEFAULT = 120
+const API_ORIGINS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 const DISCOVERY_PORT = 45901
 const DEFAULT_PORT = 45900
 const UPDATE_REPO = 'Fishexploi/dsh-mesh'
@@ -66,7 +74,46 @@ function dshHome() {
 }
 
 function sixDigits() {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(randomInt(0, 1000000)).padStart(6, '0')
+}
+
+/** Compare two secrets without leaking their contents through timing. */
+function sameSecret(left, right) {
+  const a = createHash('sha256').update(String(left == null ? '' : left)).digest()
+  const b = createHash('sha256').update(String(right == null ? '' : right)).digest()
+  return timingSafeEqual(a, b)
+}
+
+function hashToken(value) {
+  return createHash('sha256').update(String(value == null ? '' : value)).digest('hex')
+}
+
+function isLoopback(address) {
+  const value = String(address || '')
+  return value === '127.0.0.1' || value === '::1' || value === '::ffff:127.0.0.1'
+}
+
+/** The local UI API may only be driven from a local page. */
+function originAllowed(origin) {
+  if (!origin) return true
+  try {
+    return API_ORIGINS.has(new URL(origin).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** Bearer token from the Authorization header, with a query-string fallback. */
+function requestToken(req, url) {
+  const header = String(req.headers.authorization || '')
+  const match = /^Bearer\s+(.+)$/i.exec(header)
+  if (match) return match[1].trim()
+  return String(url.searchParams.get('token') || '')
+}
+
+/** Never let a token reach a log line. */
+function redactUrl(value) {
+  return String(value || '').replace(/([?&]token=)[^&]*/gi, '$1<redacted>')
 }
 
 function short(value, max = 400) {
@@ -167,6 +214,7 @@ function json(res, status, value) {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
     'content-length': Buffer.byteLength(body),
   })
   res.end(body)
@@ -313,6 +361,9 @@ class Mesh {
     this.approvalSeen = new WeakSet()
     this.hostApprovalHooked = false
     this.stalledNudged = new Set()
+    this.pairingAttempts = new Map()
+    this.actionWindows = new Map()
+    this.streamOpens = new Map()
     this.running = 0
     this.queue = []
     this.workerSessions = new Set()
@@ -329,10 +380,14 @@ class Mesh {
       nodeId: randomUUID(),
       name: this.config.name || hostname() || 'DSH node',
       listenPort: Number(this.config.port) > 0 ? Number(this.config.port) : DEFAULT_PORT,
-      listenEnabled: this.config.listenEnabled !== false,
+      // Off by default: a node only accepts parents when the user opens it.
+      listenEnabled: this.config.listenEnabled === true,
+      listenHost: this.config.listenHost || '127.0.0.1',
+      discoveryEnabled: this.config.discoveryEnabled !== false && this.config.listenEnabled === true,
       allowParent: this.config.allowParent !== false,
       workspaceRoot: this.config.workspaceRoot || join(this.dir, 'workspaces'),
       pairingCode: sixDigits(),
+      pairingLog: [],
       parent: null,
       children: {},
       tasks: {},
@@ -410,8 +465,24 @@ class Mesh {
       }
       this.state.nodeId = parsed.nodeId || randomUUID()
       this.state.pairingCode = parsed.pairingCode || sixDigits()
+      this.state.pairingLog = Array.isArray(parsed.pairingLog) ? parsed.pairingLog.slice(-20) : []
       this.state.allowParent = parsed.allowParent !== false
-      this.state.listenEnabled = parsed.listenEnabled !== false
+      // Migration: a node that was already paired before this version keeps
+      // listening exactly as it did, so an upgrade cannot silently cut it off.
+      const wasPaired = Boolean(parsed.parent)
+      this.state.listenEnabled = parsed.listenEnabled === undefined
+        ? wasPaired
+        : parsed.listenEnabled !== false
+      this.state.listenHost = parsed.listenHost
+        || (parsed.listenEnabled === false ? '127.0.0.1' : '0.0.0.0')
+      this.state.discoveryEnabled = parsed.discoveryEnabled === undefined
+        ? this.state.listenEnabled
+        : parsed.discoveryEnabled !== false
+      if (parsed.parent && parsed.parent.token && !parsed.parent.tokenHash) {
+        // Old state files kept the parent token in clear; keep only its hash.
+        this.state.parent.tokenHash = hashToken(parsed.parent.token)
+        this.state.parent.token = ''
+      }
       this.state.listenPort = Number(parsed.listenPort) > 0 ? Number(parsed.listenPort) : DEFAULT_PORT
       this.state.workspaceRoot = parsed.workspaceRoot || join(this.dir, 'workspaces')
       for (const child of Object.values(this.state.children)) {
@@ -553,7 +624,7 @@ class Mesh {
       }
       server.once('error', onError)
       server.once('listening', onListening)
-      server.listen(this.state.listenPort, '0.0.0.0')
+      server.listen(this.state.listenPort, this.state.listenHost || '127.0.0.1')
     })
     this.server = server
     this.port = server.address().port
@@ -578,12 +649,8 @@ class Mesh {
     if (url.pathname === '/mesh/events' && req.method === 'GET') return this.handleEvents(req, res, url)
     if (url.pathname === '/mesh/rpc' && req.method === 'POST') return this.handleRpc(req, res, url)
     if (url.pathname === '/mesh/info' && req.method === 'GET') {
-      return json(res, 200, {
-        protocol: PROTOCOL,
-        nodeId: this.state.nodeId,
-        name: this.state.name,
-        port: this.port,
-      })
+      // Protocol only: node identity and port are not public information.
+      return json(res, 200, { protocol: PROTOCOL })
     }
     json(res, 404, { error: 'not found' })
   }
@@ -591,6 +658,12 @@ class Mesh {
   async handleHello(req, res) {
     if (!this.state.allowParent) {
       json(res, 403, { error: '本机未允许成为下级' })
+      return
+    }
+    const clientIp = String(req.socket.remoteAddress || '')
+    const blockedFor = this.pairingGate(clientIp)
+    if (blockedFor) {
+      json(res, 429, { error: '配对尝试过多，请 ' + Math.ceil(blockedFor / 1000) + ' 秒后再试' })
       return
     }
     let body
@@ -610,52 +683,164 @@ class Mesh {
       json(res, 400, { error: '缺少节点 ID' })
       return
     }
+    const submittedCode = String(body.code || '')
+    const submittedToken = String(body.token || '')
     const existing = this.state.parent
-    let token = existing ? existing.token : ''
     if (existing) {
       if (existing.id !== parentId) {
         json(res, 409, { error: '本机已绑定上级 ' + existing.name + '，请先断开' })
         return
       }
-      if (String(body.token || '') !== existing.token && String(body.code || '') !== this.state.pairingCode) {
-        json(res, 401, { error: '配对码或令牌不正确' })
+      // Once paired, only the token reconnects. The pairing code is single-use.
+      const tokenOk = submittedToken && sameSecret(
+        hashToken(submittedToken),
+        existing.tokenHash || hashToken(existing.token || ''),
+      )
+      if (!tokenOk) {
+        this.notePairingFailure(clientIp, '令牌不正确')
+        json(res, 401, { error: '令牌不正确' })
         return
       }
       existing.name = parentName
       existing.lastSeen = now()
-      if (!token) token = randomBytes(24).toString('hex')
-      existing.token = token
-    } else {
-      if (String(body.code || '') !== this.state.pairingCode) {
-        json(res, 401, { error: '配对码不正确' })
-        return
-      }
-      token = randomBytes(24).toString('hex')
-      this.state.parent = {
-        id: parentId,
-        name: parentName,
-        token,
-        grant: 'none',
-        pairedAt: now(),
-        lastSeen: now(),
-      }
-      console.log('[dsh-mesh] parent paired: ' + parentName + ' (' + parentId + ')')
+      this.clearPairingFailures(clientIp)
+      this.save()
+      json(res, 200, {
+        ok: true,
+        protocol: PROTOCOL,
+        token: submittedToken,
+        node: { id: this.state.nodeId, name: this.state.name, port: this.port, version: this.version },
+        grant: existing.grant,
+      })
+      return
     }
+    if (!this.state.pairingCode) {
+      json(res, 401, { error: '当前没有可用的配对码，请在子级界面重新生成' })
+      return
+    }
+    if (!sameSecret(submittedCode, this.state.pairingCode)) {
+      const stillAllowed = this.notePairingFailure(clientIp, '配对码不正确')
+      json(res, 401, {
+        error: stillAllowed ? '配对码不正确' : '配对码不正确，配对码已更换并暂时锁定',
+      })
+      return
+    }
+    const token = randomBytes(24).toString('hex')
+    this.state.parent = {
+      id: parentId,
+      name: parentName,
+      tokenHash: hashToken(token),
+      grant: 'none',
+      pairedAt: now(),
+      lastSeen: now(),
+    }
+    // Single use: after a successful pairing the code stops existing.
+    this.state.pairingCode = null
+    this.clearPairingFailures(clientIp)
+    this.notePairingEvent(clientIp, true, 'paired with ' + parentName.slice(0, 40))
+    console.log('[dsh-mesh] parent paired: ' + parentName + ' (' + parentId + ') from ' + clientIp)
     this.save()
     json(res, 200, {
       ok: true,
       protocol: PROTOCOL,
       token,
       node: { id: this.state.nodeId, name: this.state.name, port: this.port, version: this.version },
-      grant: this.state.parent.grant,
+      grant: 'none',
     })
   }
 
+  /** Milliseconds a pairing attempt from this address is still locked out. */
+  pairingGate(ip) {
+    const entry = this.pairingAttempts.get(ip)
+    if (!entry) return 0
+    if (entry.blockedUntil > now()) return entry.blockedUntil - now()
+    if (entry.firstAt && now() - entry.firstAt > PAIRING_LOCK_MS) {
+      this.pairingAttempts.delete(ip)
+      return 0
+    }
+    return 0
+  }
+
+  /**
+   * Count one failed pairing attempt: rotate the code after a few misses and
+   * lock the source out after too many. Returns false once the source is locked.
+   */
+  notePairingFailure(ip, reason) {
+    const entry = this.pairingAttempts.get(ip)
+      || { failures: 0, firstAt: now(), blockedUntil: 0 }
+    entry.failures += 1
+    let allowed = true
+    if (entry.failures >= PAIRING_ROTATE_AFTER && this.state.pairingCode && !this.state.parent) {
+      this.state.pairingCode = sixDigits()
+      console.log('[dsh-mesh] pairing code rotated after ' + entry.failures + ' failures from ' + ip)
+    }
+    if (entry.failures >= PAIRING_MAX_FAILURES) {
+      entry.blockedUntil = now() + PAIRING_LOCK_MS
+      allowed = false
+    }
+    this.pairingAttempts.set(ip, entry)
+    this.notePairingEvent(ip, false, reason + ' (' + entry.failures + ')')
+    return allowed
+  }
+
+  clearPairingFailures(ip) {
+    this.pairingAttempts.delete(ip)
+  }
+
+  notePairingEvent(ip, ok, reason) {
+    const log = Array.isArray(this.state.pairingLog) ? this.state.pairingLog : []
+    log.push({ at: now(), ip: String(ip || ''), ok: Boolean(ok), reason: String(reason || '').slice(0, 120) })
+    this.state.pairingLog = log.slice(-20)
+    this.save()
+  }
+
+  /** Bound how often one address may open the event stream. */
+  noteStreamOpen(ip) {
+    const entry = this.streamOpens.get(ip) || { windowStart: now(), count: 0 }
+    if (now() - entry.windowStart > 60000) {
+      entry.windowStart = now()
+      entry.count = 0
+    }
+    entry.count += 1
+    this.streamOpens.set(ip, entry)
+    return entry.count <= 10
+  }
+
+  /** Bound how many actions one parent may trigger per minute. */
+  allowAction(parentId) {
+    const configured = Number(this.state.settings && this.state.settings.rpcPerMinute)
+    const limit = Number.isFinite(configured) && configured >= 1
+      ? Math.min(10000, Math.floor(configured))
+      : RPC_PER_MINUTE_DEFAULT
+    const key = String(parentId || 'unknown')
+    const entry = this.actionWindows.get(key) || { windowStart: now(), count: 0 }
+    if (now() - entry.windowStart > 60000) {
+      entry.windowStart = now()
+      entry.count = 0
+    }
+    entry.count += 1
+    this.actionWindows.set(key, entry)
+    return entry.count <= limit
+  }
+
+  /** The parent that owns this token, or null. Only a hash is stored. */
+  tokenParent(token) {
+    const existing = this.state.parent
+    if (!existing || !token) return null
+    const stored = existing.tokenHash || hashToken(existing.token || '')
+    return sameSecret(hashToken(token), stored) ? existing : null
+  }
+
   handleEvents(req, res, url) {
-    const token = String(url.searchParams.get('token') || '')
-    const parent = this.state.parent && token && this.state.parent.token === token ? this.state.parent : null
+    const token = requestToken(req, url)
+    const parent = this.tokenParent(token)
     if (!parent) {
       json(res, 401, { error: '令牌无效' })
+      return
+    }
+    const sourceIp = String(req.socket.remoteAddress || '')
+    if (!this.noteStreamOpen(sourceIp)) {
+      json(res, 429, { error: '连接过于频繁' })
       return
     }
     if (this.parentStream) {
@@ -729,10 +914,14 @@ class Mesh {
   }
 
   async handleRpc(req, res, url) {
-    const token = String(url.searchParams.get('token') || '')
-    const parent = this.state.parent && token && this.state.parent.token === token ? this.state.parent : null
+    const token = requestToken(req, url)
+    const parent = this.tokenParent(token)
     if (!parent) {
       json(res, 401, { error: '令牌无效' })
+      return
+    }
+    if (!this.allowAction(parent.id)) {
+      json(res, 429, { error: '操作过于频繁，请稍后再试' })
       return
     }
     parent.lastSeen = now()
@@ -1410,9 +1599,9 @@ class Mesh {
     const req = httpRequest({
       host: child.host,
       port: child.port,
-      path: '/mesh/events?token=' + encodeURIComponent(child.token || ''),
+      path: this.childPath(child, '/mesh/events'),
       method: 'GET',
-      headers: { accept: 'application/x-ndjson' },
+      headers: this.childHeaders(child, { accept: 'application/x-ndjson' }),
     }, res => {
       if (res.statusCode !== 200) {
         res.resume()
@@ -1921,16 +2110,35 @@ class Mesh {
     const response = await this.httpJson(
       child.host,
       child.port,
-      '/mesh/rpc?token=' + encodeURIComponent(child.token || ''),
+      this.childPath(child, '/mesh/rpc'),
       'POST',
       { method, params },
       20000,
+      this.childHeaders(child),
     )
     if (!response.ok) throw new Error(response.error || '请求失败')
     return response.value
   }
 
-  httpJson(host, port, path, method, body, timeoutMs) {
+  /**
+   * Where to put the token for this child. A child that knows about the
+   * Authorization header gets it there only; older ones still read the query
+   * string, so the URL keeps the token until that peer is updated.
+   */
+  childPath(child, path) {
+    const supportsHeader = compareVersions(String(child.version || '0.0.0'), HEADER_TOKEN_SINCE) >= 0
+    if (supportsHeader || !child.token) return path
+    const separator = path.includes('?') ? '&' : '?'
+    return path + separator + 'token=' + encodeURIComponent(child.token)
+  }
+
+  childHeaders(child, extra = {}) {
+    const headers = { ...extra }
+    if (child.token) headers.authorization = 'Bearer ' + child.token
+    return headers
+  }
+
+  httpJson(host, port, path, method, body, timeoutMs, extraHeaders = {}) {
     return new Promise((resolve, reject) => {
       const data = body === undefined ? '' : JSON.stringify(body)
       const req = httpRequest({
@@ -1941,6 +2149,7 @@ class Mesh {
         headers: {
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(data),
+          ...extraHeaders,
         },
       }, res => {
         const chunks = []
@@ -1963,6 +2172,12 @@ class Mesh {
   // ── discovery ───────────────────────────────────────────────────────────
 
   startDiscovery() {
+    // Discovery is an announcement to the whole LAN; it follows the listener
+    // switch instead of running on its own.
+    if (!this.state.discoveryEnabled) {
+      this.startCleanupTimer()
+      return
+    }
     try {
       const socket = createSocket({ type: 'udp4', reuseAddr: true })
       socket.on('message', (message, rinfo) => {
@@ -1990,6 +2205,12 @@ class Mesh {
     } catch (error) {
       console.error('[dsh-mesh] discovery unavailable: ' + messageOf(error))
     }
+    this.startCleanupTimer()
+    this.startBroadcast()
+  }
+
+  startCleanupTimer() {
+    if (this.cleanupTimer) return
     this.cleanupTimer = setInterval(() => {
       const cutoff = now() - 15000
       for (const entry of [...this.discovered.entries()]) {
@@ -1998,10 +2219,10 @@ class Mesh {
       this.checkStalledTasks()
     }, 5000)
     if (this.cleanupTimer.unref) this.cleanupTimer.unref()
-    this.startBroadcast()
   }
 
   startBroadcast() {
+    if (!this.state.discoveryEnabled || this.broadcaster) return
     try {
       const socket = createSocket({ type: 'udp4' })
       socket.bind(() => {
@@ -2022,7 +2243,7 @@ class Mesh {
   }
 
   broadcastNow() {
-    if (!this.broadcaster || !this.server || this.stopped) return
+    if (!this.broadcaster || !this.server || this.stopped || !this.state.discoveryEnabled) return
     const payload = Buffer.from(JSON.stringify({
       magic: 'dsh-mesh',
       protocol: PROTOCOL,
@@ -2319,8 +2540,30 @@ class Mesh {
     }))
   }
 
+  /**
+   * The local UI API.
+   *
+   * Three gates, because a page the user merely visits can POST to localhost:
+   * loopback-only, a JSON content type (so a cross-site form cannot reach it),
+   * and an Origin check. Without them a malicious page could drive the plugin.
+   */
   async handleApi(req, res) {
     const url = parseUrl(req)
+    if (!isLoopback(req.socket.remoteAddress)) {
+      json(res, 403, { error: '只接受本机请求' })
+      return
+    }
+    if (!originAllowed(String(req.headers.origin || ''))) {
+      json(res, 403, { error: '来源不被允许' })
+      return
+    }
+    if (req.method === 'POST') {
+      const type = String(req.headers['content-type'] || '').toLowerCase()
+      if (!type.startsWith('application/json')) {
+        json(res, 415, { error: '请求必须是 application/json' })
+        return
+      }
+    }
     if (url.pathname === '/mesh/api/state' && req.method === 'GET') {
       json(res, 200, this.view())
       return
@@ -2389,21 +2632,61 @@ class Mesh {
     }
     const listenChanged = typeof body.listenEnabled === 'boolean' && body.listenEnabled !== this.state.listenEnabled
     if (typeof body.listenEnabled === 'boolean') this.state.listenEnabled = body.listenEnabled
+    let hostChanged = false
+    if (typeof body.listenHost === 'string' && body.listenHost.trim()) {
+      const host = body.listenHost.trim()
+      const valid = host === '127.0.0.1' || host === '0.0.0.0' || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
+      if (valid && host !== this.state.listenHost) {
+        this.state.listenHost = host
+        hostChanged = true
+      }
+    }
+    if (typeof body.discoveryEnabled === 'boolean') this.state.discoveryEnabled = body.discoveryEnabled
+    if (this.state.listenEnabled && !this.state.parent && !this.state.pairingCode) {
+      this.state.pairingCode = sixDigits()
+    }
     const nextPort = Number(body.listenPort)
     if (Number.isInteger(nextPort) && nextPort > 0 && nextPort <= 65535 && nextPort !== this.state.listenPort) {
       this.state.listenPort = nextPort
       if (this.state.listenEnabled) await this.restartServer()
-    } else if (listenChanged) {
+    } else if (listenChanged || hostChanged) {
       if (!this.state.listenEnabled && this.server) {
         await new Promise(resolve => this.server.close(resolve))
         this.server = null
         this.port = 0
+      } else if (this.state.listenEnabled && this.server) {
+        await this.restartServer()
       } else if (this.state.listenEnabled && !this.server) {
         await this.startServer()
       }
     }
+    if (!this.state.discoveryEnabled) {
+      if (this.broadcaster) {
+        try {
+          this.broadcaster.close()
+        } catch {
+          // Ignore.
+        }
+        this.broadcaster = null
+      }
+      if (this.broadcastTimer) {
+        clearInterval(this.broadcastTimer)
+        this.broadcastTimer = null
+      }
+      if (this.discovery) {
+        try {
+          this.discovery.close()
+        } catch {
+          // Ignore.
+        }
+        this.discovery = null
+      }
+      this.discovered.clear()
+    } else if (!this.discovery) {
+      this.startDiscovery()
+    }
     this.save()
-    this.broadcastNow()
+    if (this.state.discoveryEnabled) this.broadcastNow()
     return this.view()
   }
 
@@ -2700,6 +2983,8 @@ class Mesh {
         listenPort: this.state.listenPort,
         listening: Boolean(this.server),
         listenEnabled: this.state.listenEnabled,
+        listenHost: this.state.listenHost || '127.0.0.1',
+        discoveryEnabled: Boolean(this.state.discoveryEnabled),
         error: this.serverError,
         stage: this.state.stage,
         build: this.state.build,
@@ -2707,6 +2992,7 @@ class Mesh {
         allowParent: this.state.allowParent,
         workspaceRoot: this.state.workspaceRoot,
         pairingCode: this.state.parent || !this.state.listenEnabled ? null : this.state.pairingCode,
+        pairingLog: (this.state.pairingLog || []).slice(-5),
         ready: this.ready,
         approvalTimeoutMs: this.state.settings.approvalTimeoutMs,
         maxConcurrent: this.state.settings.maxConcurrent,

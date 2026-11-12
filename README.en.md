@@ -179,17 +179,39 @@ records, so a child can clear its inbox without touching the parent's.
 
 ## Security notes
 
-- Transport is plain HTTP with a per-connection random token and a pairing
-  code. Use it on a trusted LAN, or put both ends behind a private network /
-  TLS terminator. TLS is not implemented yet.
-- Do not expose the mesh port to the internet. The child listener accepts only
-  the narrow `/mesh` protocol, never DSH's owner `/api`.
-- A parent's task is a prompt for the child's agent, not a remote shell. The
-  child's sandbox, permission preset, and tool policy still apply.
-- Treat child results as untrusted content when they return to the parent.
-- Only share a task output directory, not a whole disk. Artifacts are copied
-  through the authenticated mesh connection and served from the parent's local
-  download endpoint.
+**Default posture (0.4.0 and later)**
+
+- A node **listens on `127.0.0.1` only, and the listener is off by default**.
+  Accepting a parent is an explicit switch plus an explicit address; a node
+  upgraded from an older version keeps listening exactly as it did before.
+- UDP discovery follows that switch and can be turned off on its own.
+- Transport is still **plain HTTP with no TLS**. Use it on a trusted LAN, or put
+  both ends behind WireGuard/Tailscale or a TLS terminator. Never expose the
+  port to the internet. The child listener only speaks the narrow `/mesh`
+  protocol, never DSH's owner `/api`.
+- The child grants a ceiling; the parent picks a permission per task. A newly
+  paired parent starts with no permission at all.
+
+**Hardening added in 0.4.0**
+
+| Area | Behaviour |
+|---|---|
+| Pairing code | six digits from `crypto`; the code **rotates after 3 failed attempts**, the source is **locked for 10 minutes after 5**, the code is **single-use** (invalid once paired), and comparisons are constant time |
+| Pairing audit | the last 20 attempts (time, source, result) are kept and the panel shows the latest |
+| Token transport | `Authorization: Bearer`; the query string is only used for peers older than 0.4.0 so a half-updated pair still connects |
+| Token at rest | the child stores only the SHA-256 of the parent token |
+| Local API | `/mesh/api/*` accepts loopback connections only, requires `application/json`, checks `Origin`, and sends `nosniff` — a random web page cannot drive the plugin |
+| Rate limits | 120 actions per minute per parent, 10 event-stream opens per minute per address |
+| Information | `/mesh/info` returns the protocol number only |
+
+**Still open**
+
+- Plaintext transport: someone able to capture LAN traffic still sees task
+  contents. The token is no longer in URLs, but RPC bodies are not encrypted.
+- If an approval cannot be forwarded (version mismatch), the child's local
+  operator can approve it on that machine. Keep both ends on one version.
+- Plugins are trusted in-process JavaScript with no sandbox; read the source
+  before installing one.
 
 ## Layout
 
