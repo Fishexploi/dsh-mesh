@@ -9,7 +9,7 @@
 一台 DSH 当“上级”，把任务派给其他 DSH；子级在自己的工作区里干活，完成后把结果和文件交回来；遇到敏感操作，子级把审批请求送到上级，由上级点“允许”或“拒绝”。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-0.4.1-2f81f7?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.4.2-2f81f7?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" />
   <img alt="dsh" src="https://img.shields.io/badge/DSH-%5E0.2.2--rc.1-8957e5?style=flat-square" />
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b949e?style=flat-square" />
@@ -70,7 +70,7 @@
 用 Release 里的打包文件（当前最省事，已发布）：
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.1/fishboy-dsh-mesh-0.4.1.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.2/fishboy-dsh-mesh-0.4.2.tgz
 ```
 
 或者从源码本地安装：
@@ -90,6 +90,8 @@ git clone https://github.com/Fishexploi/dsh-mesh.git
 1. **监听默认姿态变了**：新装的节点默认**不监听**、且只绑 `127.0.0.1`。已经配对过的老节点升级后保持原样，不会被切断；但如果你要给新的子级机器配对，记得先在那台机器上打开「开放 Mesh 端口」并选「所有网卡」。
 2. **配对码变成单次使用**：配对成功后码立即作废，之后靠令牌重连。想重新配对，在子级点「刷新」生成新码。
 3. **令牌不再放在 URL 里**：新版本走 `Authorization: Bearer`；仅当对面是 0.4.0 之前的版本时才回退到查询串，所以一半升级也不会断连。
+
+**0.4.2 起，插件自身的故障不会再拖垮整个 DSH 启动**：如果同一份客户端 bundle 被组装了两次，插件只忽略那一次重复注册（不再抛 `duplicate factory registration` 让 web 启动失败）；`apply()` 内部出错（端口被占、状态文件损坏等）也只会记录日志并降级为"插件未启动"，DSH 照常打开。已经因为重复副本崩过的机器，**先清掉多余副本**（运行 `sync\purge-mesh.ps1`，或把 `node_modules\@fishboy\dsh-mesh` 整个删掉再装），然后更新。
 
 **0.4.1 起「一键更新」会自己处理包名迁移**：0.4.1 之前，插件包名从 `dsh-mesh` 改成了 `@fishboy/dsh-mesh`，而旧机器的 profile 还指向老名字，直接更新会导致启动失败（`import failed`）。现在更新会在写文件之前先把 profile 的依赖键、bundles 行改名并在 scoped 位置建好链接，**所以从 0.3.x / 0.4.0 升级不需要手动跑迁移脚本**。已经因为这个问题起不来的机器，仍需在崩溃界面点「禁用第三方插件」进入后跑一次 `sync\repair-profile.ps1`。
 

@@ -35,7 +35,7 @@ host and a parent of another.
 From the release package (simplest, already published):
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.1/fishboy-dsh-mesh-0.4.1.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.2/fishboy-dsh-mesh-0.4.2.tgz
 ```
 
 Or clone the repository and install the folder:
@@ -65,6 +65,14 @@ still connect, but keep both ends on one version):
 
 Update both ends: approval forwarding, rate limits and the CSRF gates only fully
 apply when both nodes run 0.4.x.
+
+From 0.4.2 a broken plugin can no longer take the whole app down: a client
+bundle that gets composed twice is ignored instead of throwing
+`duplicate factory registration` during the web boot, and a failure inside
+`apply()` (port already in use, damaged state file) is logged and degrades to
+"plugin not started" while DSH keeps opening. A machine that already crashed
+because of a duplicate copy must still clear it first (`sync\purge-mesh.ps1`, or
+delete `node_modules\@fishboy\dsh-mesh` and install again), then update.
 
 From 0.4.1 the built-in updater migrates the package name by itself: earlier
 versions renamed the plugin from `dsh-mesh` to `@fishboy/dsh-mesh`, which left
