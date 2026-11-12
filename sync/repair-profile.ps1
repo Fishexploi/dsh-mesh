@@ -65,11 +65,26 @@ foreach ($path in $installed) {
 if (-not $installed.Count) { Write-Host '       (none)' }
 
 $patchPath = Join-Path $ProfileDir 'cordis.patch.yml'
+$patchMeshBlocks = 0
 if (Test-Path -LiteralPath $patchPath) {
-  $patchLines = Get-Content -LiteralPath $patchPath -Encoding UTF8 | Select-String -Pattern 'dsh-mesh'
-  if ($patchLines) {
-    Write-Host '[warn] cordis.patch.yml mentions dsh-mesh:'
-    foreach ($line in $patchLines) { Write-Host ('       ' + $line.Line.Trim()) }
+  $patchAll = @(Get-Content -LiteralPath $patchPath -Encoding UTF8)
+  $cursor = 0
+  while ($cursor -lt $patchAll.Count) {
+    if ($patchAll[$cursor] -match '^-\s') {
+      $block = @()
+      $start = $cursor
+      while ($cursor -lt $patchAll.Count -and ($cursor -eq $start -or $patchAll[$cursor] -notmatch '^-\s')) {
+        $block += $patchAll[$cursor]
+        $cursor += 1
+      }
+      if (($block -join "`n") -match 'dsh-mesh') {
+        $patchMeshBlocks += 1
+        Write-Host '[warn] cordis.patch.yml carries a patch entry that mentions dsh-mesh:'
+        foreach ($line in $block) { Write-Host ('       ' + $line.Trim()) }
+      }
+    } else {
+      $cursor += 1
+    }
   }
 }
 
@@ -81,6 +96,7 @@ if ($bundleMesh.Count -eq 1 -and $bundleMesh[0] -ne $Canonical) { $problems += "
 if ($depKeys.Count -eq 1 -and $depKeys[0] -ne $Canonical) { $problems += "the dependency key is still the old name ($(@($depKeys)[0]))" }
 $canonicalPath = Join-Path (Join-Path $nodeModules '@fishboy') 'dsh-mesh'
 if (-not (Test-Path -LiteralPath $canonicalPath)) { $problems += "no scoped install at $canonicalPath" }
+if ($patchMeshBlocks -gt 0) { $problems += "cordis.patch.yml carries $patchMeshBlocks dsh-mesh patch row(s) next to the bundle, which loads the plugin twice" }
 
 if (-not $problems.Count) {
   Write-Host '[ok] nothing to repair: exactly one scoped install and one scoped row.'
@@ -165,6 +181,37 @@ if (-not $consumedOld -and (Test-Path -LiteralPath $oldPath) -and (Test-Path -Li
     Move-Item -LiteralPath $oldPath -Destination $aside
     Write-Host "[ok] moved the stale copy aside to $aside"
   }
+}
+
+# 4. Drop dsh-mesh rows from the profile patch file. The bundle already inserts
+#    the plugin; a second row loads it twice, which is what makes the client
+#    bundle register its factory twice and the host entry fail to activate.
+if ($patchMeshBlocks -gt 0) {
+  $patchBackup = Join-Path $ProfileDir ('cordis.patch.yml.repair-' + $stamp + '.bak')
+  Copy-Item -LiteralPath $patchPath -Destination $patchBackup
+  $kept = New-Object System.Collections.Generic.List[string]
+  $cursor = 0
+  $dropped = 0
+  while ($cursor -lt $patchAll.Count) {
+    if ($patchAll[$cursor] -match '^-\s') {
+      $block = @()
+      $start = $cursor
+      while ($cursor -lt $patchAll.Count -and ($cursor -eq $start -or $patchAll[$cursor] -notmatch '^-\s')) {
+        $block += $patchAll[$cursor]
+        $cursor += 1
+      }
+      if (($block -join "`n") -match 'dsh-mesh') {
+        $dropped += 1
+      } else {
+        foreach ($line in $block) { $kept.Add($line) }
+      }
+    } else {
+      $kept.Add($patchAll[$cursor])
+      $cursor += 1
+    }
+  }
+  [System.IO.File]::WriteAllLines($patchPath, $kept, (New-Object System.Text.UTF8Encoding($false)))
+  Write-Host "[ok] removed $dropped dsh-mesh row(s) from cordis.patch.yml (backup: $patchBackup)"
 }
 
 $json = $manifest | ConvertTo-Json -Depth 20
