@@ -35,7 +35,7 @@ host and a parent of another.
 From the release package (simplest, already published):
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.0/fishboy-dsh-mesh-0.4.0.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.1/fishboy-dsh-mesh-0.4.1.tgz
 ```
 
 Or clone the repository and install the folder:
@@ -64,7 +64,15 @@ still connect, but keep both ends on one version):
    still connects.
 
 Update both ends: approval forwarding, rate limits and the CSRF gates only fully
-apply when both nodes run 0.4.0.
+apply when both nodes run 0.4.x.
+
+From 0.4.1 the built-in updater migrates the package name by itself: earlier
+versions renamed the plugin from `dsh-mesh` to `@fishboy/dsh-mesh`, which left
+old profiles pointing at the old name and made DSH fail to boot with
+`import failed`. The updater now rewrites the dependency and bundle row and
+links the scoped name before it writes any file, so updating from 0.3.x or 0.4.0
+no longer needs a manual migration. A machine that already fails to boot still
+needs one run of `sync\repair-profile.ps1` from the disabled-plugins screen.
 
 Restart DSH (or reload the profile) after the first install. The **Mesh** icon
 appears in the left rail.
