@@ -7,13 +7,13 @@
 npm 上架还在走流程时，市场收录和安装都走这条，已经可用：
 
 ```
-https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.2/fishboy-dsh-mesh-0.3.2.tgz
+https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.0/fishboy-dsh-mesh-0.4.0.tgz
 ```
 
 安装命令：
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.2/fishboy-dsh-mesh-0.3.2.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.0/fishboy-dsh-mesh-0.4.0.tgz
 ```
 
 发版流程：`npm pack --pack-destination <目录>` → GitHub Releases → 选已有的 tag → 传 tgz →
@@ -69,8 +69,8 @@ dsh plugin --profile <profile> add @fishboy/dsh-mesh
 ## 2. GitHub Release
 
 ```powershell
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 然后在 GitHub 上把 tag 变成 Release，附一段更新说明。目录站会从 tag / npm 版本读元数据。
@@ -128,10 +128,11 @@ dsh.so 与部分目录站会按 topic 自动索引。
 ## 6. 万一 npm 一直注册不了
 
 市场收录不强制 npm：精选列表明确支持 **GitHub-only 条目**，dsh-market 也能从
-压缩包链接安装。退路是把 `npm pack` 出来的 tarball 挂到 GitHub Release，安装命令写成
+压缩包链接安装。退路是把 `npm pack` 出来的 tarball 挂到 GitHub Release（现在就是这么发的），
+安装命令写成
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.1/fishboy-dsh-mesh-0.3.1.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.0/fishboy-dsh-mesh-0.4.0.tgz
 ```
 
 代价：没有 npm 下载统计，更新走 GitHub 而不是 npm。这是退路，不是首选。

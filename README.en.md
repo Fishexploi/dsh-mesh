@@ -35,7 +35,7 @@ host and a parent of another.
 From the release package (simplest, already published):
 
 ```powershell
-dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.3.2/fishboy-dsh-mesh-0.3.2.tgz
+dsh plugin --profile <profile> add https://github.com/Fishexploi/dsh-mesh/releases/download/v0.4.0/fishboy-dsh-mesh-0.4.0.tgz
 ```
 
 Or clone the repository and install the folder:
@@ -48,6 +48,23 @@ Then choose the cloned `dsh-mesh` folder in **Settings → Plugins → Install f
 file**. The npm package `@fishboy/dsh-mesh` is still going through the publishing
 process; once it is up, `dsh plugin --profile <profile> add @fishboy/dsh-mesh`
 works too.
+
+**Upgrading 0.3.x to 0.4.0** (the protocol number is unchanged, so mixed versions
+still connect, but keep both ends on one version):
+
+1. **New listening default**: a freshly installed node does not listen and binds
+   `127.0.0.1`. A node that was already paired keeps exactly what it had, but a
+   new child must open **设置 → 开放 Mesh 端口** and pick **所有网卡** before
+   anyone can pair with it.
+2. **The pairing code is single-use**: it is invalidated the moment pairing
+   succeeds; reconnect later with the token, and refresh the code in the child
+   panel when you want to pair again.
+3. **The token left the URL**: requests carry `Authorization: Bearer`, and the
+   query string is only used towards peers older than 0.4.0 — a half-updated pair
+   still connects.
+
+Update both ends: approval forwarding, rate limits and the CSRF gates only fully
+apply when both nodes run 0.4.0.
 
 Restart DSH (or reload the profile) after the first install. The **Mesh** icon
 appears in the left rail.
