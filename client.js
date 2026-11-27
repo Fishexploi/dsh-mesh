@@ -46,25 +46,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** 列表里用相对时间，标题上挂完整时间；比 "2026/11/27 14:01:33" 好读得多。 */
-    function timeAgo(value) {
-      if (!value) return '—';
-      let ms = 0;
-      try {
-        ms = typeof value === 'number' ? value : new Date(value).getTime();
-      } catch {
-        return '—';
-      }
-      if (!Number.isFinite(ms)) return '—';
-      const diff = Date.now() - ms;
-      if (diff < 0) return '刚刚';
-      if (diff < 60000) return '刚刚';
-      if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
-      if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
-      if (diff < 7 * 86400000) return `${Math.floor(diff / 86400000)} 天前`;
-      return new Date(ms).toLocaleDateString();
-    }
-
     function createStore() {
       let snapshot = { data: null, error: '', loading: true };
       const listeners = new Set();
@@ -177,25 +158,12 @@ window.__ModuleLoader__.load({
     }
 
     function Button({ children, onClick, disabled, kind = 'default', title, type = 'button', style }) {
-      const [hover, setHover] = useState(false);
-      const [focused, setFocused] = useState(false);
       const primary = kind === 'primary';
       const danger = kind === 'danger';
-      const interactive = !disabled && Boolean(onClick);
-      const restingBg = primary
-        ? TOKEN.brand
-        : danger
-          ? `color-mix(in srgb, ${TOKEN.bad} 8%, transparent)`
-          : TOKEN.layer;
-      const hoverBg = primary
-        ? `color-mix(in srgb, ${TOKEN.brand} 86%, #000)`
-        : danger
-          ? `color-mix(in srgb, ${TOKEN.bad} 14%, transparent)`
-          : TOKEN.layer2;
       const base = {
         appearance: 'none',
-        border: `1px solid ${danger ? `color-mix(in srgb, ${TOKEN.bad} 45%, transparent)` : primary ? TOKEN.brand : TOKEN.border}`,
-        background: interactive && hover ? hoverBg : restingBg,
+        border: `1px solid ${danger ? 'color-mix(in srgb, ' + TOKEN.bad + ' 45%, transparent)' : primary ? TOKEN.brand : TOKEN.border}`,
+        background: primary ? TOKEN.brand : danger ? 'color-mix(in srgb, ' + TOKEN.bad + ' 8%, transparent)' : TOKEN.layer,
         color: primary ? '#fff' : danger ? TOKEN.bad : TOKEN.text,
         borderRadius: 7,
         padding: '5px 10px',
@@ -205,22 +173,9 @@ window.__ModuleLoader__.load({
         opacity: disabled ? 0.45 : 1,
         fontFamily: 'inherit',
         whiteSpace: 'nowrap',
-        transition: 'background 120ms ease, box-shadow 120ms ease, border-color 120ms ease',
-        boxShadow: interactive && focused ? `0 0 0 2px color-mix(in srgb, ${TOKEN.brand} 45%, transparent)` : 'none',
-        outline: 'none',
         ...style,
       };
-      return h('button', {
-        type,
-        title,
-        onClick,
-        disabled,
-        style: base,
-        onMouseEnter: () => setHover(true),
-        onMouseLeave: () => setHover(false),
-        onFocus: () => setFocused(true),
-        onBlur: () => setFocused(false),
-      }, children);
+      return h('button', { type, title, onClick, disabled, style: base }, children);
     }
 
     function Card({ children, style, ...rest }) {
@@ -299,7 +254,7 @@ window.__ModuleLoader__.load({
       const [replyBusy, setReplyBusy] = useState(false);
       const [replyError, setReplyError] = useState('');
       const active = task.status === 'queued' || task.status === 'running';
-      const tone = task.status === 'failed' ? 'bad' : task.status === 'done' ? 'good' : task.status === 'running' ? 'brand' : 'neutral';
+      const tone = task.status === 'failed' ? 'bad' : task.status === 'done' ? 'good' : task.status === 'running' ? 'warn' : 'neutral';
       const artifacts = task.artifacts || [];
       const rounds = task.followups || 0;
       const outgoing = task.direction === 'out';
@@ -332,7 +287,6 @@ window.__ModuleLoader__.load({
         h('div', {
           role: 'button',
           tabIndex: 0,
-          'aria-expanded': expanded,
           onClick: () => setExpanded(value => !value),
           onKeyDown: event => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -340,36 +294,19 @@ window.__ModuleLoader__.load({
               setExpanded(value => !value);
             }
           },
-          style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
+          style: { display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', cursor: 'pointer' },
         },
           h(Badge, { tone: outgoing ? 'brand' : 'warn' }, outgoing ? `↑ ${task.peerName || '下级'}` : `↓ ${task.peerName || '上级'}`),
-          h('strong', {
-            title: task.title || '未命名任务',
-            style: {
-              flex: '1 1 auto',
-              minWidth: 0,
-              fontSize: 12.5,
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            },
-          }, task.title || '未命名任务'),
-          h('span', {
-            title: timeText(task.endedAt || task.createdAt),
-            style: { fontSize: 11, color: TOKEN.muted, whiteSpace: 'nowrap', flex: '0 0 auto' },
-          }, timeAgo(task.endedAt || task.createdAt)),
-          h('span', { style: { fontSize: 11, color: TOKEN.muted, flex: '0 0 auto' } }, expanded ? '▾' : '▸'),
-        ),
-        h('div', {
-          style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 7 },
-        },
+          h('strong', { style: { fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' } },
+            task.title || '未命名任务'),
           h(Badge, { tone }, STATUS_LABEL[task.status] || task.status),
           rounds ? h(Badge, { tone: 'neutral' }, `续聊 ${rounds}`) : null,
           task.approvalPending ? h(Badge, { tone: 'warn' }, '待审批') : null,
           task.unread ? h(Badge, { tone: 'good' }, '新结果') : null,
           task.delivery === 'failed' ? h(Badge, { tone: 'bad' }, '待调取') : null,
-          artifacts.length ? h(Badge, { tone: 'neutral' }, `${artifacts.length} 个附件`) : null,
+          h('span', { style: { flex: 1 } }),
+          h('span', { style: { fontSize: 11, color: TOKEN.muted } }, timeText(task.endedAt || task.createdAt)),
+          h('span', { style: { fontSize: 11, color: TOKEN.muted } }, expanded ? '▾' : '▸'),
         ),
         expanded
           ? h('div', null,
@@ -650,7 +587,6 @@ window.__ModuleLoader__.load({
       const tabPill = (key, label, group) => h('button', {
         key,
         type: 'button',
-        'aria-pressed': activeTab === key,
         title: group ? `派出 ${group.out} · 接收 ${group.input}` : '全部服务器',
         onClick: () => {
           setPeerTab(key);
@@ -672,22 +608,7 @@ window.__ModuleLoader__.load({
         },
       }, label,
         group && group.unread
-          ? h('span', {
-              title: `${group.unread} 条未读结果`,
-              style: {
-                minWidth: 15,
-                height: 15,
-                padding: '0 4px',
-                boxSizing: 'border-box',
-                borderRadius: 99,
-                background: TOKEN.good,
-                color: '#fff',
-                fontSize: 10,
-                lineHeight: '15px',
-                textAlign: 'center',
-                fontWeight: 600,
-              },
-            }, String(group.unread))
+          ? h('span', { style: { width: 6, height: 6, borderRadius: 99, background: TOKEN.good, display: 'inline-block' } })
           : null,
       );
 
@@ -777,52 +698,6 @@ window.__ModuleLoader__.load({
         }
       };
 
-      // 任务区先抽出来再排位置：它是面板主体，不该排在"手动连接"后面。
-      const tasksSection = h(Section, {
-        title: '任务',
-        hint: '按服务器切换 · 点卡片展开 · ↑派出 / ↓接收',
-        extra: visibleTasks.some(task => task.status !== 'running' && task.status !== 'queued')
-          ? h(Button, {
-              disabled: busy,
-              title: '只删除 Mesh 记录，会话和工作区保留',
-              onClick: () => {
-                const label = activeGroup ? activeGroup.label : '全部服务器';
-                if (window.confirm(`清理「${label}」里已结束的任务记录？未读结果会保留，会话和工作区不受影响。`)) {
-                  run('clear-tasks', { peerId: activeTab === 'all' ? '' : activeTab }).catch(() => {});
-                }
-              },
-            }, '清理已结束')
-          : null,
-      },
-        groups.length
-          ? h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 } },
-              tabPill('all', `全部 ${tasks.length}`),
-              groups.map(group => tabPill(group.key, `${group.label} ${group.out + group.input}`, group)),
-            )
-          : null,
-        shownTasks.length
-          ? shownTasks.map(task => h(TaskCard, {
-              key: task.id,
-              task,
-              onCancel: item => {
-                if (window.confirm(`取消任务「${item.title}」？`)) run('cancel', { taskId: item.id }).catch(() => {});
-              },
-              onReply: (item, message) => run('reply', { taskId: item.id, message }),
-              onDelete: item => {
-                if (window.confirm(`删除任务记录「${item.title}」？只删 Mesh 记录，会话和工作区保留。`)) {
-                  run('delete-task', { taskId: item.id }).catch(() => {});
-                }
-              },
-            }))
-          : h(Empty, null, tasks.length
-              ? '这个服务器下还没有任务。'
-              : '还没有任务：在聊天框输入 @ 选一台服务器，把任务内容发出去。'),
-        visibleTasks.length > shownTasks.length
-          ? h('div', { style: { marginTop: 6 } },
-              h(Button, { onClick: () => setShowAllTasks(true) }, `显示全部 ${visibleTasks.length} 条`))
-          : null,
-      );
-
       return h('div', {
         style: {
           height: '100%',
@@ -833,8 +708,6 @@ window.__ModuleLoader__.load({
           fontSize: 13,
           padding: '22px 26px 70px',
           boxSizing: 'border-box',
-          maxWidth: 1080,
-          margin: '0 auto',
         },
       },
         h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' } },
@@ -876,7 +749,7 @@ window.__ModuleLoader__.load({
           },
         },
           h(Badge, { tone: 'neutral' }, `v${node.version || '?'}`),
-          h(Button, { disabled: updateBusy, onClick: checkUpdate, title: '更新来自 GitHub，更新后会自动重载' }, updateBusy ? '检查中…' : '检查更新'),
+          h(Button, { disabled: updateBusy, onClick: checkUpdate }, updateBusy ? '检查中…' : '检查更新'),
           updateInfo && updateInfo.available
             ? h(Button, { kind: 'primary', disabled: updateBusy, onClick: applyUpdate }, `一键更新到 ${updateInfo.latest}`)
             : null,
@@ -886,6 +759,7 @@ window.__ModuleLoader__.load({
           updateNotice ? h('span', { style: { fontSize: 11, color: TOKEN.good } }, updateNotice) : null,
           updateError ? h('span', { style: { fontSize: 11, color: TOKEN.bad } }, updateError) : null,
           h('span', { style: { flex: 1 } }),
+          h('span', { style: { fontSize: 11, color: TOKEN.muted } }, '更新来自 GitHub · 更新后会自动重载'),
         ),
 
         h('div', {
@@ -900,9 +774,9 @@ window.__ModuleLoader__.load({
             lineHeight: 1.6,
           },
         },
-          '在聊天框输入 ',
+          '聊天里也可以直接派任务：输入 ',
           h('code', { style: { color: TOKEN.brand, fontFamily: 'ui-monospace, Consolas, monospace' } }, '@'),
-          ' 选一台在线服务器，后面直接写任务内容；结果只出现在这里，不会作为你的消息插进对话。',
+          ' 选择 服务器A/B/C 后输入任务内容发送；A 的 agent 会理解需求后派发，结果在 Mesh 里，不会以你的消息形式插进聊天。',
         ),
 
         approvals.length
@@ -914,8 +788,6 @@ window.__ModuleLoader__.load({
               })),
             )
           : null,
-
-        tasksSection,
 
         parent
           ? h(Section, { title: '我的上级', hint: '它给你派任务；你决定授予它多少权限' },
@@ -954,17 +826,56 @@ window.__ModuleLoader__.load({
 
         h(Section, { title: '手动连接', hint: '跨网段或广播被防火墙拦截时使用' },
           h(Card, { style: { padding: 12 } },
-            h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' } },
-              h('div', { style: { flex: '1 1 170px', minWidth: 0 } },
-                h(Field, { label: '主机 / IP' }, h(Input, { value: manualHost, placeholder: '192.168.1.20', onChange: event => setManualHost(event.target.value) }))),
-              h('div', { style: { flex: '0 0 104px' } },
-                h(Field, { label: '端口' }, h(Input, { value: manualPort, inputMode: 'numeric', onChange: event => setManualPort(event.target.value) }))),
-              h('div', { style: { flex: '0 0 116px' } },
-                h(Field, { label: '配对码' }, h(Input, { value: manualCode, placeholder: '6 位数字', onChange: event => setManualCode(event.target.value) }))),
-              h('div', { style: { flex: '0 0 auto' } },
-                h(Button, { kind: 'primary', disabled: busy || !manualHost.trim(), onClick: connectManual }, '连接')),
+            h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 110px 120px auto', gap: 8, alignItems: 'end' } },
+              h(Field, { label: '主机 / IP' }, h(Input, { value: manualHost, placeholder: '192.168.1.20', onChange: event => setManualHost(event.target.value) })),
+              h(Field, { label: '端口' }, h(Input, { value: manualPort, inputMode: 'numeric', onChange: event => setManualPort(event.target.value) })),
+              h(Field, { label: '配对码' }, h(Input, { value: manualCode, placeholder: '6 位数字', onChange: event => setManualCode(event.target.value) })),
+              h(Button, { kind: 'primary', disabled: busy || !manualHost.trim(), onClick: connectManual }, '连接'),
             ),
           ),
+        ),
+
+        h(Section, {
+          title: '任务',
+          hint: '按服务器切换 · 点卡片展开 · ↑派出 / ↓接收',
+          extra: visibleTasks.some(task => task.status !== 'running' && task.status !== 'queued')
+            ? h(Button, {
+                disabled: busy,
+                title: '只删除 Mesh 记录，会话和工作区保留',
+                onClick: () => {
+                  const label = activeGroup ? activeGroup.label : '全部服务器';
+                  if (window.confirm(`清理「${label}」里已结束的任务记录？未读结果会保留，会话和工作区不受影响。`)) {
+                    run('clear-tasks', { peerId: activeTab === 'all' ? '' : activeTab }).catch(() => {});
+                  }
+                },
+              }, '清理已结束')
+            : null,
+        },
+          groups.length
+            ? h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 } },
+                tabPill('all', `全部 ${tasks.length}`),
+                groups.map(group => tabPill(group.key, `${group.label} ${group.out + group.input}`, group)),
+              )
+            : null,
+          shownTasks.length
+            ? shownTasks.map(task => h(TaskCard, {
+                key: task.id,
+                task,
+                onCancel: item => {
+                  if (window.confirm(`取消任务「${item.title}」？`)) run('cancel', { taskId: item.id }).catch(() => {});
+                },
+                onReply: (item, message) => run('reply', { taskId: item.id, message }),
+                onDelete: item => {
+                  if (window.confirm(`删除任务记录「${item.title}」？只删 Mesh 记录，会话和工作区保留。`)) {
+                    run('delete-task', { taskId: item.id }).catch(() => {});
+                  }
+                },
+              }))
+            : h(Empty, null, tasks.length ? '这个服务器下还没有任务。' : '还没有任务。'),
+          visibleTasks.length > shownTasks.length
+            ? h('div', { style: { marginTop: 6 } },
+                h(Button, { onClick: () => setShowAllTasks(true) }, `显示全部 ${visibleTasks.length} 条`))
+            : null,
         ),
 
         h(Section, {
